@@ -24,6 +24,8 @@
 - 음악·예보는 인터넷이 필요합니다. 차량·휴대폰 연결은 서로 통신할 수 있는 같은 Wi-Fi/핫스폿과 인증 코드 확인·차량 승인이 필요합니다.
 - 처음에는 체험 모드로 열립니다. 실제 공조 쓰기·복원과 활성 내비게이션 ETA 수신, 실차에서의 두 기기 연속 시험은 미검증입니다. 자세한 범위는 [검증 기록](docs/VERIFICATION.md)을 따릅니다.
 
+공식 참가 가이드·공지·FAQ와의 대조 결과는 [제출 기준 점검](docs/CONTEST_CHECK.md)에 기록했습니다. 공모전 심사와 Pleos App Market 입점 심사는 별개이며, 2차는 Pleos Connect 에뮬레이터에서 시연합니다. 실제 차량은 필수가 아닙니다.
+
 설치 명령 예시:
 
 ```sh
@@ -173,6 +175,8 @@ docs/VERIFICATION.md        실제 검증 결과와 한계
 1.2의 `FOREGROUND_SERVICE_MEDIA_PLAYBACK`과 `WAKE_LOCK`은 사용자가 시작한 동승자 음악을 화면이 꺼져도 재생하기 위한 권한입니다. 음악이 중지되면 관련 서비스와 재생 자원을 해제합니다. 마이크·통화 권한을 추가하지 않습니다.
 
 기본 오디오 두 개는 `tools/generate_sounds.py`로 직접 생성했습니다. 추천 음악은 공식 Audius API로 재생하며 원본 음원을 APK에 넣거나 다운로드 파일로 보관하지 않습니다. 제한 조건이 있거나 공개 스트리밍 접근이 불명확한 곡은 제외합니다. 아티스트와 출처·원본 페이지를 표시합니다. SDK와 전이 의존성은 각 제공자의 라이선스·약관을 따릅니다. SDK 원본 AAR과 시스템 이미지는 이 저장소에 배포하지 않습니다.
+
+배포 라이브러리의 출처·버전·Apache 2.0 및 관련 원문 고지는 [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)에 있으며 APK의 `assets/licenses/THIRD_PARTY_NOTICES.txt`에도 포함합니다. Asta Sans의 SIL OFL은 `assets/fonts/OFL-AstaSans.txt`에 포함합니다. Pleos SDK에는 제공자의 별도 조건이 적용되며 오픈소스 라이선스로 재허락하지 않습니다.
 
 음악 추천 설계·API·기존 서비스와의 관계는 [음악 기능 문서](docs/MUSIC.md)에 정리했습니다. 날씨 데이터는 [Open-Meteo](https://open-meteo.com/) 모델 자료이며 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)에 따라 한국어 날씨 분류로 변환해 표시합니다. 무료 API는 비상업 프로토타입 범위로 사용하며 상용화 시 이용 조건을 다시 검토해야 합니다.
 
