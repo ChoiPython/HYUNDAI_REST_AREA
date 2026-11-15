@@ -1,6 +1,6 @@
 # 쉼, 자리 검증 기록
 
-검증일: 2026년 11월 15일. APK: `apk/shimjari_release.apk`, 패키지 `io.shimjari.rest`, 버전 1.3.1(5).
+검증일: 2026년 11월 15일. APK: `apk/최주영_쉼, 자리_release.apk`, 패키지 `io.shimjari.rest`, 버전 1.3.1(5).
 
 ## 빌드와 자동 검사
 
