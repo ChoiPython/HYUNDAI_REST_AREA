@@ -1,0 +1,14 @@
+.gradle/
+.tools/
+.work/
+.secrets/
+.playwright-mcp/
+**/build/
+local.properties
+*.jks
+*.keystore
+signing.properties
+deliverables/
+*.log
+.idea/
+*.iml

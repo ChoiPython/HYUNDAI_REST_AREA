@@ -1,0 +1,44 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'io.shimjari.rest'
+    compileSdk 35
+    buildToolsVersion '35.0.0'
+    defaultConfig {
+        applicationId 'io.shimjari.rest'
+        minSdk 28
+        targetSdk 35
+        versionCode 1
+        versionName '1.0.0'
+        testInstrumentationRunner 'android.test.InstrumentationTestRunner'
+    }
+    signingConfigs {
+        submission {
+            if (System.getenv('SHIMJARI_KEYSTORE')) {
+                storeFile file(System.getenv('SHIMJARI_KEYSTORE'))
+                storePassword System.getenv('SHIMJARI_STORE_PASSWORD')
+                keyAlias System.getenv('SHIMJARI_KEY_ALIAS') ?: 'shimjari'
+                keyPassword System.getenv('SHIMJARI_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (System.getenv('SHIMJARI_KEYSTORE')) signingConfig signingConfigs.submission
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    testOptions { unitTests.returnDefaultValues = true }
+    lint { abortOnError true; checkReleaseBuilds true }
+    packaging { resources.excludes += ['META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*'] }
+}
+
+dependencies {
+    implementation 'ai.pleos.playground:Vehicle:2.3.2'
+    compileOnly files("${android.sdkDirectory}/platforms/android-35/optional/android.car.jar")
+    testImplementation 'junit:junit:4.13.2'
+}
