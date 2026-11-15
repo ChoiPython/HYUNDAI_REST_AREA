@@ -90,7 +90,7 @@ public final class SoundPlayer {
         player=MediaPlayer.create(context,current==1?R.raw.melody:R.raw.rain,attributes,0);
         if(player==null){failure("소리를 재생하지 못했어요.");return;}
         player.setWakeMode(context,PowerManager.PARTIAL_WAKE_LOCK);
-        prepared=true;player.setLooping(true);applyVolume();player.start();metadata(title,"쉼자리",0);state("재생 중",PlaybackState.STATE_PLAYING);
+        prepared=true;player.setLooping(true);applyVolume();player.start();metadata(title,"쉼, 자리",0);state("재생 중",PlaybackState.STATE_PLAYING);
     }
     private void prepareTrack(){
         releasePlayer();if(queue.isEmpty())return;
@@ -109,7 +109,7 @@ public final class SoundPlayer {
             main.postDelayed(()->{if(player==candidate&&!prepared)failure("음악 응답이 늦어지고 있어요. 다시 재생해 주세요.");},20000);
         }catch(Exception error){failure("이 곡을 재생할 수 없어요. 다른 곡을 선택해 주세요.");}
     }
-    private void metadata(String name,String artist,long duration){mediaSession.setMetadata(new MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE,name).putString(MediaMetadata.METADATA_KEY_ARTIST,artist).putString(MediaMetadata.METADATA_KEY_ALBUM,current==3?"Audius · 쉼자리 추천":"쉼자리").putLong(MediaMetadata.METADATA_KEY_DURATION,duration).build());}
+    private void metadata(String name,String artist,long duration){mediaSession.setMetadata(new MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE,name).putString(MediaMetadata.METADATA_KEY_ARTIST,artist).putString(MediaMetadata.METADATA_KEY_ALBUM,current==3?"Audius · 쉼, 자리 추천":"쉼, 자리").putLong(MediaMetadata.METADATA_KEY_DURATION,duration).build());}
     private void focusChanged(int change){
         if(change==AudioManager.AUDIOFOCUS_GAIN){duck=1;applyVolume();boolean resume=transientPaused&&!userPaused;transientPaused=false;if(resume&&player!=null&&prepared){player.start();state("재생 중",PlaybackState.STATE_PLAYING);}}
         else if(change==AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK){duck=.2f;applyVolume();}

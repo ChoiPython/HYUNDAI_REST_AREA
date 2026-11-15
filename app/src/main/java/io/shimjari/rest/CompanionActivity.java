@@ -21,19 +21,23 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 
 public final class CompanionActivity extends Activity implements RestController.Observer {
+    private UiStyle ui;
     private RestController c;
     private CompanionManager link;
     private LinearLayout body;
+    private ScrollView activeScroll;
+    private boolean renderedPhone;
+    private int restoreScrollY;
     private boolean phone,restricted;
     private DrivingUxMonitor ux;
     private int dp(float n){return Math.round(n*getResources().getDisplayMetrics().density);}
-    private TextView text(String value,int size,boolean bold){TextView t=new TextView(this);t.setText(value);t.setTextColor(0xff292c32);t.setTextSize(size);if(bold)t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);t.setPadding(0,dp(5),0,dp(5));return t;}
+    private TextView text(String value,int size,boolean bold){return ui.text(value,size,ui.text,bold);}
     private void gap(int height){body.addView(new android.view.View(this),new LinearLayout.LayoutParams(1,dp(height)));}
-    private Button button(String value,Runnable click){Button b=new Button(this);b.setText(value);b.setAllCaps(false);b.setTextSize(16);b.setTextColor(0xff514a75);b.setMinHeight(dp(54));b.setOnClickListener(v->click.run());body.addView(b,new LinearLayout.LayoutParams(-1,-2));return b;}
-    private void note(String title,String description){gap(12);body.addView(text(title,19,true));body.addView(text(description,15,false));}
+    private Button button(String value,Runnable click){Button button=ui.button(value,false,false,click);LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);params.topMargin=dp(8);body.addView(button,params);return button;}
+    private void note(String title,String description){gap(20);body.addView(text(title,18,true));gap(7);TextView detail=ui.text(description,14,ui.muted,false);body.addView(detail);}
     private String time(long wall){return wall<=0?"아직 예약하지 않았어요":new SimpleDateFormat("M월 d일 a h:mm",Locale.KOREA).format(new Date(wall));}
     @Override public void onCreate(Bundle saved){
-        super.onCreate(saved);c=((RestApp)getApplication()).controller();link=c.companions;phone=saved==null?!getPackageManager().hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE):saved.getBoolean("phone");
+        super.onCreate(saved);ui=new UiStyle(this);c=((RestApp)getApplication()).controller();link=c.companions;phone=saved==null?!getPackageManager().hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE):saved.getBoolean("phone");
         if(getPackageManager().hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE))try{ux=new DrivingUxMonitor(this,value->{restricted=value;render();});}catch(Exception|LinkageError e){restricted=true;}
         render();
     }
@@ -44,12 +48,15 @@ public final class CompanionActivity extends Activity implements RestController.
     @Override public void changed(){runOnUiThread(this::render);}
     private void render(){
         if(isFinishing()||c==null)return;
-        ScrollView scroll=new ScrollView(this);body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);body.setPadding(dp(24),dp(20),dp(24),dp(28));body.setBackgroundColor(0xfff7f7f2);scroll.addView(body);setContentView(scroll);scroll.setOnApplyWindowInsetsListener((v,insets)->{v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;});
-        body.addView(text("휴대폰과 차량 연결",26,true));
+        restoreScrollY=activeScroll!=null&&renderedPhone==phone?(activeScroll.isLaidOut()?activeScroll.getScrollY():restoreScrollY):0;
+        renderedPhone=phone;
+        ScrollView scroll=new ScrollView(this);activeScroll=scroll;ui.restoreScroll(scroll,restoreScrollY);body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);body.setPadding(dp(24),dp(20),dp(24),dp(28));body.setBackgroundColor(ui.background);scroll.addView(body);setContentView(scroll);ui.systemBars(false);scroll.setOnApplyWindowInsetsListener((v,insets)->{v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;});
+        body.addView(text("휴대폰과 차량 연결",24,true));
         if(restricted){note("차량 화면 제한이 적용 중이에요","연결과 음악은 별도로 이어집니다. 연결 설정은 주차 후 또는 허용된 승객 화면에서 해 주세요.");return;}
         button("휴식 화면으로 돌아가기",this::finish);
-        LinearLayout tabs=new LinearLayout(this);tabs.setGravity(Gravity.CENTER);body.addView(tabs);
-        for(boolean selectPhone:new boolean[]{false,true}){Button b=new Button(this);b.setText(selectPhone?"동승자 휴대폰":"차량에서 연결받기");b.setTextSize(15);b.setOnClickListener(v->{phone=selectPhone;render();});tabs.addView(b,new LinearLayout.LayoutParams(0,dp(60),1));}
+        LinearLayout tabs=new LinearLayout(this);tabs.setGravity(Gravity.CENTER_VERTICAL);gap(16);body.addView(tabs);
+        for(boolean selectPhone:new boolean[]{false,true}){Button tab=ui.button(selectPhone?"동승자 휴대폰":"차량",phone==selectPhone,false,()->{phone=selectPhone;render();});ui.compact(tab,14);LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,-2,1);if(!selectPhone)params.rightMargin=dp(8);tabs.addView(tab,params);}
+
         note(phone?"동승자 휴대폰":"차량 연결 관리",phone?"같은 Wi-Fi 또는 차량 핫스폿에서 연결해 주세요. 별명·좌석·음악·선호 환경과 기상 예약만 주고받습니다.":"출발 전에 휴대폰을 승인하고 음악 제어를 맡길 사람을 정해 주세요. 주행 중 차량 화면 제한은 유지됩니다.");
         if(!link.status.isEmpty())body.addView(text(link.status,15,true));
         if(phone)phone();else host();

@@ -54,7 +54,7 @@ public final class AlarmScheduler {
         boolean passenger=session.profile.mode==RestMode.PASSENGER_RIDE;
         PendingIntent open=PendingIntent.getActivity(context,41,new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         Notification notice=new Notification.Builder(context,passenger?PASSENGER_CHANNEL:CHANNEL)
-            .setSmallIcon(R.drawable.ic_launcher).setContentTitle(passenger?"쉼자리 · 동승자 휴식 시간이 끝났어요":"쉼자리 · 일어날 시간이에요")
+            .setSmallIcon(R.drawable.ic_launcher).setContentTitle(passenger?"쉼, 자리 · 동승자 휴식 시간이 끝났어요":"쉼, 자리 · 일어날 시간이에요")
             .setContentText(passenger?"음악을 멈췄어요. 준비되면 휴식을 마쳐 주세요.":"천천히 몸을 깨우고, 준비되면 휴식을 마쳐 주세요.")
             .setContentIntent(open).setAutoCancel(true).setCategory(passenger?Notification.CATEGORY_REMINDER:Notification.CATEGORY_ALARM).build();
         ((NotificationManager)context.getSystemService(Context.NOTIFICATION_SERVICE)).notify(41,notice);

@@ -50,11 +50,14 @@ import org.json.JSONObject;
 
 /** Setup on an allowed display, with separate passenger-trip and parked-driver sessions. */
 public final class MainActivity extends Activity implements RestController.Observer {
-    private static final int BG = 0xFFF7F7F2, WHITE = Color.WHITE, INK = 0xFF292C32, MUTED = 0xFF777B81;
-    private static final int PURPLE = 0xFF6D6698, LAVENDER = 0xFFEEEDF6, GREEN = 0xFF637C6B;
+    private UiStyle ui;
+    private int BG,SURFACE,INK,MUTED,ACCENT,SOFT,GREEN;
     private RestController c;
     private LinearLayout root, content;
     private TextView remainingLabel;
+    private ScrollView activeScroll;
+    private String renderedScreen="";
+    private int restoreScrollY;
     private String page = "home";
     private DrivingUxMonitor uxMonitor;
     private boolean drivingRestricted;
@@ -71,6 +74,7 @@ public final class MainActivity extends Activity implements RestController.Obser
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
+        ui=new UiStyle(this);BG=ui.background;SURFACE=ui.surface;INK=ui.text;MUTED=ui.muted;ACCENT=ui.accent;SOFT=ui.soft;GREEN=ui.muted;
         c = ((RestApp) getApplication()).controller();
         if (saved != null) page = saved.getString("page", "home");
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
@@ -89,10 +93,7 @@ public final class MainActivity extends Activity implements RestController.Obser
 
     private int dp(float value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     private TextView text(String value, float size, int color, boolean bold) {
-        TextView t = new TextView(this); t.setText(value); t.setTextSize(size); t.setTextColor(color);
-        t.setFontFeatureSettings("tnum");
-        if (bold) t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        t.setIncludeFontPadding(true); return t;
+        return ui.text(value,size,color,bold);
     }
     private LinearLayout column() { LinearLayout v = new LinearLayout(this); v.setOrientation(LinearLayout.VERTICAL); return v; }
     private LinearLayout row() { LinearLayout v = new LinearLayout(this); v.setOrientation(LinearLayout.HORIZONTAL); v.setGravity(Gravity.CENTER_VERTICAL); return v; }
@@ -100,14 +101,11 @@ public final class MainActivity extends Activity implements RestController.Obser
     private void space(LinearLayout parent, int height) { View v = new View(this); parent.addView(v, new LinearLayout.LayoutParams(1, dp(height))); }
     private void gap(LinearLayout parent, int width) { parent.addView(new View(this), new LinearLayout.LayoutParams(dp(width), 1)); }
     private Button button(String label, boolean primary, Runnable click) {
-        Button b = new Button(this); b.setText(label); b.setAllCaps(false); b.setTextSize(16); b.setTextColor(primary ? WHITE : INK);
-        b.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        b.setBackground(shape(primary ? PURPLE : 0xFFF0F0EC, 16)); b.setMinHeight(dp(52)); b.setMinimumHeight(dp(52));
-        b.setPadding(dp(18), dp(10), dp(18), dp(10)); b.setStateListAnimator(null); b.setOnClickListener(v -> click.run());
-        return b;
+        boolean onDark=c!=null&&c.session!=null&&c.session.phase!=RestSession.Phase.REVIEW;
+        return ui.button(label,primary,onDark,click);
     }
     private LinearLayout card() {
-        LinearLayout card = column(); card.setPadding(dp(22), dp(18), dp(22), dp(18)); card.setBackground(shape(WHITE, 22)); return card;
+        LinearLayout card = column(); card.setPadding(dp(22), dp(18), dp(22), dp(18)); card.setBackground(shape(SURFACE, 18)); return card;
     }
     private void label(LinearLayout parent, String title, String caption) {
         parent.addView(text(title, 18, INK, true)); if (caption != null) { space(parent, 4); parent.addView(text(caption, 13, MUTED, false)); }
@@ -120,6 +118,9 @@ public final class MainActivity extends Activity implements RestController.Obser
     }
     private void render() {
         if (c == null || isFinishing()) return;
+        String screenKey=drivingRestricted?"restricted":c.session==null?"page:"+page:"session:"+c.session.id+":"+c.session.phase;
+        restoreScrollY=screenKey.equals(renderedScreen)&&activeScroll!=null?(activeScroll.isLaidOut()?activeScroll.getScrollY():restoreScrollY):0;
+        renderedScreen=screenKey;activeScroll=null;
         remainingLabel = null;
         if(drivingRestricted){renderRestricted();return;}
         if (c.session != null) { renderSession(); return; }
@@ -130,7 +131,7 @@ public final class MainActivity extends Activity implements RestController.Obser
         if (wide) {
             LinearLayout rail = column(); rail.setPadding(dp(18), dp(30), dp(18), dp(20));
             LinearLayout brand = row(); brand.addView(new MoonView(false), new LinearLayout.LayoutParams(dp(36), dp(36)));
-            gap(brand, 8); brand.addView(text("쉼자리", 24, INK, true)); rail.addView(brand); space(rail, 7);
+            gap(brand, 8); brand.addView(text("쉼, 자리", 24, INK, true)); rail.addView(brand); space(rail, 7);
             rail.addView(text("당신을 위한 작은 쉼", 11, MUTED, false)); space(rail, 40);
             nav("home", "휴식 준비", "◌", rail, true); nav("profiles", "나의 프로필", "○", rail, true);
             nav("music", "오늘의 음악", "♫", rail, true);
@@ -139,9 +140,9 @@ public final class MainActivity extends Activity implements RestController.Obser
             rail.addView(text("천천히, 편안하게.\nSHIMJARI", 12, MUTED, false));
             root.addView(rail, new LinearLayout.LayoutParams(dp(190), -1));
         } else {
-            LinearLayout header = row(); header.setPadding(dp(20), dp(12), dp(20), 0); header.addView(text("쉼자리", 25, INK, true)); root.addView(header);
+            LinearLayout header = row(); header.setPadding(dp(20), dp(12), dp(20), 0); header.addView(text("쉼, 자리", 25, INK, true)); root.addView(header);
         }
-        ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true); scroll.setClipToPadding(false);
+        ScrollView scroll = new ScrollView(this); activeScroll=scroll;scroll.setFillViewport(true); scroll.setClipToPadding(false);
         content = column(); content.setPadding(dp(wide ? 18 : 20), dp(26), dp(wide ? 28 : 20), dp(24)); scroll.addView(content);
         root.addView(scroll, wide ? new LinearLayout.LayoutParams(0, -1, 1) : new LinearLayout.LayoutParams(-1, 0, 1));
         if (!wide) {
@@ -154,49 +155,54 @@ public final class MainActivity extends Activity implements RestController.Obser
         applyRoot(root);
     }
     private void applyRoot(LinearLayout view) {
+        int left=view.getPaddingLeft(),top=view.getPaddingTop(),right=view.getPaddingRight(),bottom=view.getPaddingBottom();
         setContentView(view);
         view.setOnApplyWindowInsetsListener((v, insets) -> {
-            v.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(), insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom()); return insets;
+            v.setPadding(left+insets.getSystemWindowInsetLeft(),top+insets.getSystemWindowInsetTop(),right+insets.getSystemWindowInsetRight(),bottom+insets.getSystemWindowInsetBottom());return insets;
         });
+        if(activeScroll!=null)ui.restoreScroll(activeScroll,restoreScrollY);
+        ui.systemBars(c.session!=null&&c.session.phase!=RestSession.Phase.REVIEW);
     }
     private void pageHeader(String eyebrow, String title) {
-        LinearLayout top = row(); LinearLayout words = column(); words.addView(text(eyebrow, 12, MUTED, false)); space(words, 5); words.addView(text(title, 27, INK, true));
-        top.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView badge = text(c.vehicle.isDemo() ? "체험 모드" : "차량 연결 모드", 12, c.vehicle.isDemo() ? PURPLE : GREEN, true);
-        badge.setPadding(dp(13), dp(9), dp(13), dp(9)); badge.setBackground(shape(c.vehicle.isDemo() ? LAVENDER : 0xFFE8F0E9, 30));
-        badge.setOnClickListener(v -> { page = "settings"; render(); }); top.addView(badge); content.addView(top); space(content, 22);
+        LinearLayout top=row();
+        TextView section=text(eyebrow,12,MUTED,true);top.addView(section,new LinearLayout.LayoutParams(0,-2,1));gap(top,12);
+        TextView badge=text(c.vehicle.isDemo()?"체험 모드":"차량 연결",12,ACCENT,true);
+        badge.setPadding(dp(10),dp(7),dp(10),dp(7));badge.setBackground(shape(SOFT,8));
+        badge.setOnClickListener(v->{page="settings";render();});top.addView(badge);content.addView(top);space(content,12);
+        content.addView(text(title,getResources().getConfiguration().screenWidthDp>=800?28:25,INK,true));space(content,22);
     }
+
     private void home(boolean wide) {
-        pageHeader("REST FOR YOUR JOURNEY", "오늘은, 편히 쉬어가세요");
+        pageHeader("휴식 준비", "편안한 쉼을 시작해요");
         boolean passenger=c.selected.mode==RestMode.PASSENGER_RIDE;
-        LinearLayout modes=card();label(modes,"누가 쉬고 있나요?","동승자는 이동 중에, 운전자는 주차한 뒤에 쉬어요.");space(modes,12);
+        LinearLayout modes=card();label(modes,"누가 쉬고 있나요?",null);space(modes,14);
         LinearLayout modeRow=row();
         for(RestMode mode:RestMode.values()){
-            Button choice=button(mode.label+"\n"+(wide?mode.description:mode==RestMode.PASSENGER_RIDE?"이동 중 내 자리에서":"주차한 뒤 운전자 쉼"),c.selected.mode==mode,()->{c.selected.mode(mode);c.saveProfile();});choice.setTextSize(wide?16:13);
-            LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(0,dp(76),1);mp.rightMargin=dp(7);modeRow.addView(choice,mp);
+            Button choice=button(mode==RestMode.PASSENGER_RIDE?"동승자":"운전자",c.selected.mode==mode,()->{c.selected.mode(mode);c.saveProfile();});choice.setSingleLine(true);choice.setContentDescription(mode.label+" · "+mode.description);
+            LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(0,-2,1);if(mode==RestMode.PASSENGER_RIDE)mp.rightMargin=dp(8);modeRow.addView(choice,mp);
         }
         modes.addView(modeRow);content.addView(modes);space(content,14);
         content.addView(button("휴대폰과 차량 연결",false,()->startActivity(new Intent(this,CompanionActivity.class))));space(content,14);
-        LinearLayout hero = row(); hero.setPadding(dp(24), dp(18), dp(18), dp(18)); hero.setBackground(shape(LAVENDER, 24));
-        LinearLayout words = column(); words.addView(text(passenger?"이동하는 동안, 내 자리에서 쉬어요":"주차한 뒤, 다음 여정을 준비해요", 22, 0xFF514A75, true)); space(words, 8);
-        words.addView(text(passenger?"동승자에게 맞는 음악과 휴식 시간을 준비해요.\n다른 화면으로 넘어가도 음악이 이어져요.":"P단과 정차 상태를 확인하고\n개인 환경과 기상 시간을 준비해요.", 14, 0xFF77718D, false));
-        hero.addView(words, new LinearLayout.LayoutParams(0, -2, 1)); hero.addView(new MoonView(false), new LinearLayout.LayoutParams(dp(wide ? 132 : 80), dp(108)));
-        content.addView(hero, new LinearLayout.LayoutParams(-1, -2)); space(content, 18);
+        LinearLayout hero=row();hero.setPadding(dp(18),dp(18),dp(18),dp(18));hero.setBackground(shape(SOFT,16));
+        hero.addView(new MoonView(false),new LinearLayout.LayoutParams(dp(48),dp(48)));gap(hero,16);
+        LinearLayout words=column();words.addView(text(passenger?"이동 중에도 편안하게":"주차한 뒤, 잠시 쉬어가요",18,INK,true));space(words,6);
+        words.addView(text(passenger?"음악과 기상 시간을 준비해요.":"P단에 주차한 뒤 휴식을 시작해요.",14,MUTED,false));
+        hero.addView(words,new LinearLayout.LayoutParams(0,-2,1));content.addView(hero);space(content,18);
 
-        LinearLayout profile = card(); LinearLayout title = row(); LinearLayout who = column(); label(who, c.selected.name, "지금 쉬는 사람과 자리를 선택해 주세요");
-        title.addView(who, new LinearLayout.LayoutParams(0, -2, 1)); title.addView(button("변경", false, () -> chooseProfile())); profile.addView(title); space(profile, 14);
+        LinearLayout profile = card(); LinearLayout title = row(); LinearLayout who = column(); label(who, c.selected.name, "휴식할 자리를 선택해 주세요");
+        title.addView(who, new LinearLayout.LayoutParams(0, -2, 1));gap(title,10);Button change=button("변경",false,()->chooseProfile());ui.compact(change,14);title.addView(change,new LinearLayout.LayoutParams(dp(56),-2)); profile.addView(title); space(profile, 14);
         LinearLayout seats = row();
         for (SeatId seat : SeatId.values()) {
             if(!c.selected.mode.accepts(seat))continue;
             Button b = button(seat.label.replace("뒷좌석 ", "뒤 "), seat == c.selected.seat, () -> { c.selected.seat = seat; c.saveProfile(); });
             b.setTextSize(wide ? 14 : 12); b.setPadding(dp(6), dp(8), dp(6), dp(8));
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(49), 1); p.setMargins(0, 0, dp(6), 0); seats.addView(b, p);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1); p.setMargins(0, 0, dp(6), 0); seats.addView(b, p);
         }
         profile.addView(seats); content.addView(profile); space(content, 14);
         if(passenger){
             LinearLayout arrival=card();label(arrival,"도착 전에 깨워 주세요",c.selected.arrivalEnabled?"직접 입력한 도착 "+clock(c.selected.arrivalWall)+" · "+c.selected.wakeLeadMinutes+"분 전 기상":"직접 입력하거나 휴대폰 연결 화면에서 차량 내비게이션을 연동해요.");space(arrival,10);
             arrival.addView(button("도착 예상 시각 설정",false,()->chooseArrival(c.selected,()->c.saveProfile())));space(arrival,9);
-            LinearLayout leads=row();for(int lead:new int[]{1,5,10,15}){Button b=button(lead+"분 전",c.selected.wakeLeadMinutes==lead,()->{c.selected.wakeLeadMinutes=lead;c.saveProfile();});b.setTextSize(13);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(48),1);p.rightMargin=dp(5);leads.addView(b,p);}arrival.addView(leads);
+            LinearLayout leads=row();for(int lead:new int[]{1,5,10,15}){Button b=button(lead+"분 전",c.selected.wakeLeadMinutes==lead,()->{c.selected.wakeLeadMinutes=lead;c.saveProfile();});ui.compact(b,13);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);if(lead!=15)p.rightMargin=dp(5);leads.addView(b,p);}arrival.addView(leads);
             if(c.selected.arrivalEnabled){space(arrival,8);arrival.addView(button("휴식 시간 기준으로 바꾸기",false,()->{c.selected.arrivalEnabled=false;c.saveProfile();}));}
             content.addView(arrival);space(content,14);
         }
@@ -208,31 +214,43 @@ public final class MainActivity extends Activity implements RestController.Obser
         valueControl(thermal, "온도", String.format(Locale.KOREA, "%.1f°C", c.selected.temperature), () -> adjustTemperature(-0.5f), () -> adjustTemperature(0.5f));
         space(thermal, 7); valueControl(thermal, "풍량", c.selected.fan + "단계", () -> adjustFan(-1), () -> adjustFan(1));
         LinearLayout rest = card(); label(rest, "얼마나 쉬어갈까요", passenger&&c.selected.arrivalEnabled?"현재 도착 전 기상 예약이 휴식 시간보다 우선해요":passenger?"도착 시간을 생각해 직접 정해 주세요":"기상 후 준비할 시간도 생각해 주세요"); space(rest, 12);
-        valueControl(rest, "휴식 시간", c.selected.minutes + "분", () -> adjustMinutes(-5), () -> adjustMinutes(5)); space(rest, 9);
-        LinearLayout presets = row(); for (int n : new int[]{15,25,40}) {
-            Button b = button(n + "분", c.selected.minutes == n, () -> { c.selected.minutes = n; c.saveProfile(); }); b.setTextSize(14);
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(47), 1); p.rightMargin = dp(6); presets.addView(b,p);
-        } rest.addView(presets);
+        valueControl(rest, "휴식 시간", c.selected.minutes + "분", () -> adjustMinutes(-1), () -> adjustMinutes(1)); space(rest, 9);
+        timeStepControl(rest,"15분",15);space(rest,8);timeStepControl(rest,"1시간",60);
+
         if (wide) {
             environment.addView(thermal,new LinearLayout.LayoutParams(0,-2,1)); gap(environment,14); environment.addView(rest,new LinearLayout.LayoutParams(0,-2,1));
         } else { environment.addView(thermal); space(environment,14); environment.addView(rest); }
         content.addView(environment); space(content,14);
         LinearLayout sound = card(); label(sound,"이번 쉼의 소리","소리는 선택 사항이에요. 다른 탑승자와 함께 결정해 주세요."); space(sound,12);
-        LinearLayout choices=row(); String[] sounds={"조용히","잔잔한 선율","빗소리","추천 음악"};
-        for(int i=0;i<sounds.length;i++){final int choice=i;Button b=button(sounds[i],c.selected.sound==i,()->{if(choice==3&&c.selected.music.isEmpty()){page="music";render();return;}c.selected.sound=choice;c.saveProfile();});b.setTextSize(13);b.setPadding(dp(5),dp(8),dp(5),dp(8));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(49),1);p.rightMargin=dp(6);choices.addView(b,p);} sound.addView(choices);
+        String[] sounds={"조용히","잔잔한 선율","빗소리","추천 음악"};
+        choiceGrid(sound,sounds,c.selected.sound,wide?4:2,choice->{if(choice==3&&c.selected.music.isEmpty()){page="music";render();return;}c.selected.sound=choice;c.saveProfile();},false);
+
         space(sound,12);sound.addView(button("오늘의 상황으로 음악 추천받기",false,()->{page="music";render();}));
-        if(c.selected.sound==3&&!c.selected.music.isEmpty()){space(sound,9);MusicTrack t=c.selected.music.get(0);sound.addView(text(t.title+" — "+t.artist+" 외 "+(c.selected.music.size()-1)+"곡 · Audius",13,PURPLE,false));}
+        if(c.selected.sound==3&&!c.selected.music.isEmpty()){space(sound,9);MusicTrack t=c.selected.music.get(0);sound.addView(text(t.title+" — "+t.artist+" 외 "+(c.selected.music.size()-1)+"곡 · Audius",13,ACCENT,false));}
         content.addView(sound);space(content,18);
-        Button start=button(c.busy?"환경을 확인하고 있어요…":passenger?"동승자 휴식 시작   →":"주차 후 운전자 휴식 시작   →",true,this::preview); start.setEnabled(!c.busy);content.addView(start,new LinearLayout.LayoutParams(-1,dp(60)));space(content,12);
+        Button start=button(c.busy?"환경을 확인하고 있어요…":passenger?"동승자 휴식 시작   →":"주차 후 운전자 휴식 시작   →",true,this::preview); start.setEnabled(!c.busy);content.addView(start,new LinearLayout.LayoutParams(-1,-2));space(content,12);
         String note=c.vehicle.isDemo()?"체험 모드에서는 실제 차량을 변경하지 않아요.":"공조 설정은 P단·정차 확인 후 지원되는 항목에만 적용해요.";
         content.addView(text(note,12,MUTED,false));
         if(!c.message.isEmpty()){space(content,8);content.addView(text(c.message,13,GREEN,false));}
     }
     private void valueControl(LinearLayout parent,String label,String value,Runnable minus,Runnable plus){
-        LinearLayout line=row();line.addView(text(label,14,MUTED,false),new LinearLayout.LayoutParams(0,-2,1));
-        Button left=button("−",false,minus);left.setContentDescription(label+" 줄이기");line.addView(left,new LinearLayout.LayoutParams(dp(48),dp(48)));
-        TextView number=text(value,22,INK,true);number.setGravity(Gravity.CENTER);line.addView(number,new LinearLayout.LayoutParams(dp(105),dp(48)));
-        Button right=button("+",false,plus);right.setContentDescription(label+" 늘리기");line.addView(right,new LinearLayout.LayoutParams(dp(48),dp(48)));parent.addView(line);
+        LinearLayout line=row(),valueColumn=column();valueColumn.addView(text(label,13,MUTED,false));space(valueColumn,5);
+        TextView number=text(value,24,INK,true);number.setSingleLine(true);valueColumn.addView(number);
+        line.addView(valueColumn,new LinearLayout.LayoutParams(0,-2,1));gap(line,12);
+        Button left=button("−",false,minus),right=button("+",false,plus);
+        left.setContentDescription(label+" 줄이기");right.setContentDescription(label+" 늘리기");
+        left.setPadding(0,0,0,0);right.setPadding(0,0,0,0);left.setTextSize(24);right.setTextSize(24);
+        line.addView(left,new LinearLayout.LayoutParams(dp(48),dp(52)));gap(line,8);line.addView(right,new LinearLayout.LayoutParams(dp(48),dp(52)));parent.addView(line);
+    }
+
+    private void timeStepControl(LinearLayout parent,String label,int step){
+        LinearLayout control=row();control.setBackground(shape(SOFT,12));
+        Button minus=button("−",false,()->adjustMinutes(-step)),plus=button("+",false,()->adjustMinutes(step));
+        minus.setContentDescription(label+" 줄이기");plus.setContentDescription(label+" 늘리기");
+        minus.setPadding(0,0,0,0);plus.setPadding(0,0,0,0);minus.setTextSize(22);plus.setTextSize(22);
+        control.addView(minus,new LinearLayout.LayoutParams(dp(52),dp(52)));
+        TextView caption=text(label,14,INK,true);caption.setGravity(Gravity.CENTER);control.addView(caption,new LinearLayout.LayoutParams(0,dp(52),1));
+        control.addView(plus,new LinearLayout.LayoutParams(dp(52),dp(52)));parent.addView(control,new LinearLayout.LayoutParams(-1,-2));
     }
     private void adjustTemperature(float delta){c.selected.temperature=Math.max(16,Math.min(30,c.selected.temperature+delta));c.saveProfile();}
     private void adjustFan(int delta){c.selected.fan=Math.max(1,Math.min(8,c.selected.fan+delta));c.saveProfile();}
@@ -242,20 +260,26 @@ public final class MainActivity extends Activity implements RestController.Obser
         java.util.Calendar date=java.util.Calendar.getInstance();date.setTimeInMillis(profile.arrivalWall>System.currentTimeMillis()?profile.arrivalWall:System.currentTimeMillis()+30*60_000L);
         new TimePickerDialog(this,(view,hour,minute)->{try{long wall=WakePlan.nextTime(System.currentTimeMillis(),hour,minute,java.util.TimeZone.getDefault());WakePlan.deadline(System.currentTimeMillis(),wall,profile.wakeLeadMinutes);if(c.session!=null&&profile==c.session.profile){c.arrival(wall,profile.wakeLeadMinutes);return;}profile.arrivalWall=wall;profile.arrivalEnabled=true;saved.run();}catch(IllegalArgumentException invalid){toast(invalid.getMessage());}},date.get(java.util.Calendar.HOUR_OF_DAY),date.get(java.util.Calendar.MINUTE),true).show();
     }
-    private void musicChoices(LinearLayout parent,String[] labels,int selected,IntConsumer choose){
-        int columns=getResources().getConfiguration().screenWidthDp>=800?labels.length:Math.min(3,labels.length);
+    private void choiceGrid(LinearLayout parent,String[] labels,int selected,int columns,IntConsumer choose,boolean disabled){
         LinearLayout line=null;
         for(int i=0;i<labels.length;i++){
-            if(i%columns==0){line=row();parent.addView(line);space(parent,7);}
-            final int value=i;Button b=button(labels[i],i==selected,()->{choose.accept(value);c.music.edited();});b.setTextSize(14);b.setPadding(dp(7),dp(7),dp(7),dp(7));b.setEnabled(!c.music.busy());
-            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(50),1);p.rightMargin=dp(6);line.addView(b,p);
+            if(i%columns==0){line=row();parent.addView(line);if(i>0){LinearLayout.LayoutParams rowParams=(LinearLayout.LayoutParams)line.getLayoutParams();rowParams.topMargin=dp(8);}}
+            final int value=i;Button item=button(labels[i],i==selected,()->choose.accept(value));ui.compact(item,14);item.setEnabled(!disabled);
+            LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,-2,1);if(i%columns!=columns-1)params.rightMargin=dp(8);line.addView(item,params);
         }
+        if(line!=null)for(int i=labels.length%columns;i>0&&i<columns;i++)line.addView(new View(this),new LinearLayout.LayoutParams(0,1,1));
+    }
+    private void musicChoices(LinearLayout parent,String[] labels,int selected,IntConsumer choose){
+        boolean wide=getResources().getConfiguration().screenWidthDp>=800;
+        int columns=wide?labels.length:labels.length==3?3:2;
+        if(!wide&&getResources().getConfiguration().fontScale>1.15f)columns=2;
+        choiceGrid(parent,labels,selected,columns,value->{choose.accept(value);c.music.edited();},c.music.busy());
     }
     private void music(){
         MusicController m=c.music;MusicContext context=m.context;
-        pageHeader("MUSIC FOR THIS MOMENT","오늘의 쉼에 어울리는 음악");
-        LinearLayout situation=card();label(situation,"지금은 어떻게 쉬고 싶나요?","기분은 직접 골라 주세요. 통화 내용을 듣거나 읽지 않아요.");space(situation,14);
-        musicChoices(situation,new String[]{"잠깐 잠들기","조용히 쉬기","기분 전환"},context.purpose.ordinal(),i->context.purpose=MusicContext.Purpose.values()[i]);space(situation,10);
+        pageHeader("오늘의 음악","지금 어울리는 음악");
+        LinearLayout situation=card();label(situation,"지금은 어떻게 쉬고 싶나요?","원하는 기분을 직접 골라 주세요.\n통화 내용은 수집하지 않아요.");space(situation,14);
+        musicChoices(situation,new String[]{"잠들기","쉬기","기분 전환"},context.purpose.ordinal(),i->context.purpose=MusicContext.Purpose.values()[i]);space(situation,10);
         label(situation,"지금의 기분","최근 대화 후의 느낌도 여기에서 선택할 수 있어요.");space(situation,10);
         musicChoices(situation,new String[]{"선택 안 함","차분함","긴장됨","지침","들뜸"},context.feeling.ordinal(),i->context.feeling=MusicContext.Feeling.values()[i]);space(situation,12);
         label(situation,"오늘의 날씨",m.weatherNote);space(situation,10);
@@ -266,10 +290,10 @@ public final class MainActivity extends Activity implements RestController.Obser
         String[] genres={"","Ambient","Lo-Fi","Jazz","Classical"};int selected=0;for(int i=0;i<genres.length;i++)if(genres[i].equals(context.preferredGenre))selected=i;
         musicChoices(situation,new String[]{"분위기에 맞게","앰비언트","로파이","재즈","클래식"},selected,i->context.preferredGenre=genres[i]);
         content.addView(situation);space(content,15);
-        LinearLayout service=card();label(service,"공개 음악 서비스 Audius","추천한 음악은 쉼자리 안에서 재생해요. 멜론의 곡 목록과는 달라요.");space(service,8);
+        LinearLayout service=card();label(service,"공개 음악 서비스 Audius","추천한 음악은 쉼, 자리 안에서 재생해요. 멜론의 곡 목록과는 달라요.");space(service,8);
         service.addView(text("검색할 때 음악 장르·분위기 태그가 Audius로 전달돼요.\n기분 선택 자체와 통화·연락처 정보는 보내지 않아요. 음악 재생에는 인터넷이 필요해요.",13,MUTED,false));space(service,14);
         Button search=button(m.loadingMusic?"어울리는 음악을 찾고 있어요…":"오늘의 음악 추천받기",true,m::search);search.setEnabled(!m.busy());service.addView(search);content.addView(service);space(content,15);
-        if(!m.reason.isEmpty()){content.addView(text(m.reason,14,PURPLE,false));space(content,10);}
+        if(!m.reason.isEmpty()){content.addView(text(m.reason,14,ACCENT,false));space(content,10);}
         if(!m.note.isEmpty()){content.addView(text(m.note,14,INK,false));space(content,14);}
         for(int i=0;i<m.results.size();i++){
             final int selectedIndex=i;MusicTrack t=m.results.get(i);LinearLayout track=card();
@@ -297,11 +321,15 @@ public final class MainActivity extends Activity implements RestController.Obser
             .setNeutralButton("새 프로필",(d,w)->editProfile(null)).setNegativeButton("닫기",null).show();
     }
     private void profiles(){
-        pageHeader("YOUR COMFORT", "나에게 맞는 쉼을 기억해요");
+        pageHeader("나의 프로필", "내게 맞는 쉼");
         for(RestProfile p:c.profiles){
             LinearLayout card=card();label(card,p.name,p.mode.label+" · "+p.seat.label+" · "+p.temperature+"°C · "+p.minutes+"분 · "+p.soundName());space(card,14);
-            LinearLayout actions=row();actions.addView(button(p==c.selected?"사용 중":"선택",p==c.selected,()->{c.select(p);page="home";render();}));gap(actions,8);actions.addView(button("이름 변경",false,()->editProfile(p)));
-            if(c.profiles.size()>1){gap(actions,8);actions.addView(button("삭제",false,()->new AlertDialog.Builder(this).setTitle("프로필을 삭제할까요?").setMessage("이 프로필의 선호 설정이 삭제돼요. 지난 휴식 기록은 유지돼요.").setPositiveButton("삭제",(d,w)->{c.profiles.remove(p);if(c.selected==p)c.selected=c.profiles.get(0);c.saveProfile();}).setNegativeButton("취소",null).show()));}
+            LinearLayout actions=row();
+            Button select=button(p==c.selected?"사용 중":"선택",p==c.selected,()->{c.select(p);page="home";render();});
+            Button rename=button("이름 변경",false,()->editProfile(p));ui.compact(select,13);ui.compact(rename,13);
+            actions.addView(select,new LinearLayout.LayoutParams(0,-2,1));gap(actions,8);actions.addView(rename,new LinearLayout.LayoutParams(0,-2,1));
+            if(c.profiles.size()>1){gap(actions,8);Button remove=button("삭제",false,()->new AlertDialog.Builder(this).setTitle("프로필을 삭제할까요?").setMessage("이 프로필의 선호 설정이 삭제돼요. 지난 휴식 기록은 유지돼요.").setPositiveButton("삭제",(d,w)->{c.profiles.remove(p);if(c.selected==p)c.selected=c.profiles.get(0);c.saveProfile();}).setNegativeButton("취소",null).show());ui.compact(remove,13);actions.addView(remove,new LinearLayout.LayoutParams(0,-2,1));}
+
             card.addView(actions);content.addView(card);space(content,12);
         }
         content.addView(button("+ 새 프로필 만들기",true,()->editProfile(null)));space(content,15);
@@ -318,7 +346,7 @@ public final class MainActivity extends Activity implements RestController.Obser
         }));dialog.show();
     }
     private void history(){
-        pageHeader("YOUR REST JOURNAL","쉼이 쌓이는 기록");JSONArray rows=c.store.history();
+        pageHeader("쉼의 기록","쌓여가는 나의 쉼");JSONArray rows=c.store.history();
         if(rows.length()==0){LinearLayout empty=card();empty.addView(new MoonView(false),new LinearLayout.LayoutParams(-1,dp(140)));label(empty,"첫 번째 쉼을 기다리고 있어요","휴식을 마치면 느낌과 사용한 환경을 기록해 드려요.");space(empty,18);empty.addView(button("휴식 준비하기",true,()->{page="home";render();}));content.addView(empty);return;}
         for(int i=0;i<rows.length();i++){
             JSONObject j=rows.optJSONObject(i);if(j==null)continue;LinearLayout card=card();
@@ -334,7 +362,7 @@ public final class MainActivity extends Activity implements RestController.Obser
         content.addView(text("기록은 사용자가 남긴 휴식 느낌이며 수면 단계 측정 결과가 아니에요.",12,MUTED,false));
     }
     private void settings(){
-        pageHeader("MAKE YOURSELF COMFORTABLE","쉼자리 설정");
+        pageHeader("설정","쉼, 자리 설정");
         LinearLayout connection=card();label(connection,"차량 연결",c.vehicle.isDemo()?"현재: 체험 모드 · 실제 차량 변경 없음":"현재: Pleos 연결 모드 · 기능별 응답 확인 필요");space(connection,14);
         connection.addView(text("자동 공조에는 차량 속도 조회 권한이 필요해요.\n시스템에서 위치 권한으로 표시될 수 있지만 GPS 좌표는 읽지 않아요.",13,MUTED,false));space(connection,12);
         connection.addView(button("Pleos 차량에 연결",true,this::connectPleos));space(connection,8);connection.addView(button("체험 모드로 사용",false,()->c.connect(true,new VehicleBridge.Result<VehicleSnapshot>(){
@@ -348,7 +376,7 @@ public final class MainActivity extends Activity implements RestController.Obser
         LinearLayout privacy=card();label(privacy,"내 기기에 저장하는 프로필과 기록","연락처·GPS 위치·마이크·통화 내용을 수집하지 않아요.\n선택한 음악·지역 예보를 조회할 때 Audius·Open-Meteo에 연결해요.\n동승자 음악은 알림과 함께 배경에서 이어지고, 운전자 음악은 화면을 벗어나면 멈춰요.");space(privacy,12);
         privacy.addView(button("휴식 기록 지우기",false,()->new AlertDialog.Builder(this).setTitle("모든 휴식 기록을 지울까요?").setMessage("삭제한 기록은 되돌릴 수 없어요. 프로필은 유지돼요.").setPositiveButton("기록 삭제",(d,w)->{c.store.clearHistory();toast("휴식 기록을 지웠어요.");}).setNegativeButton("취소",null).show()));content.addView(privacy);space(content,14);
         content.addView(button("휴대폰과 차량 연결",false,()->startActivity(new Intent(this,CompanionActivity.class))));space(content,12);
-        content.addView(text("쉼자리 1.3.0\n도착 전 개인 기상과 같은 네트워크의 휴대폰 연결을 지원해요.\n차량 내비게이션 연동은 서비스와 권한이 지원되는 경우에 사용할 수 있어요.\n운전자 화면 제한을 해제하거나 좌석을 자동 이동하지 않아요.\n습도 제어·수면 단계 판정은 제공하지 않아요.",13,MUTED,false));
+        content.addView(text("쉼, 자리 1.3.1\n도착 전 개인 기상과 같은 네트워크의 휴대폰 연결을 지원해요.\n차량 내비게이션 연동은 서비스와 권한이 지원되는 경우에 사용할 수 있어요.\n운전자 화면 제한을 해제하거나 좌석을 자동 이동하지 않아요.\n습도 제어·수면 단계 판정은 제공하지 않아요.",13,MUTED,false));
         if(c.vehicle instanceof DemoVehicleBridge){space(content,18);content.addView(button("체험 환경: "+(((DemoVehicleBridge)c.vehicle).simulatedParked?"주차 중":"주행 중"),false,()->{DemoVehicleBridge d=(DemoVehicleBridge)c.vehicle;d.simulatedParked=!d.simulatedParked;render();}));}
     }
     private void connectPleos(){
@@ -413,21 +441,21 @@ public final class MainActivity extends Activity implements RestController.Obser
         boolean passenger=s.profile.mode==RestMode.PASSENGER_RIDE;
         if(passenger)getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);else getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         WindowManager.LayoutParams window=getWindow().getAttributes();window.screenBrightness=review||passenger?-1:0.12f;getWindow().setAttributes(window);
-        LinearLayout screen=column();screen.setBackgroundColor(review?BG:0xFF252434);
-        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);LinearLayout body=column();body.setGravity(Gravity.CENTER_HORIZONTAL);body.setPadding(dp(28),dp(28),dp(28),dp(24));scroll.addView(body);screen.addView(scroll,new LinearLayout.LayoutParams(-1,-1));
-        int foreground=review?INK:0xFFF4F0EB,secondary=review?MUTED:0xFFB4AFC8;
-        TextView brand=text("쉼자리   ·   "+(s.demo?"체험 모드":"차량 연결 모드"),13,secondary,false);brand.setGravity(Gravity.CENTER);body.addView(brand);space(body,22);
+        LinearLayout screen=column();screen.setBackgroundColor(review?BG:0xFF1C1D1F);
+        ScrollView scroll=new ScrollView(this);activeScroll=scroll;scroll.setFillViewport(true);LinearLayout body=column();body.setGravity(Gravity.CENTER_HORIZONTAL);body.setPadding(dp(28),dp(28),dp(28),dp(24));scroll.addView(body);screen.addView(scroll,new LinearLayout.LayoutParams(-1,-1));
+        int foreground=review?INK:0xFFF6F7F9,secondary=review?MUTED:0xFFBCC0C8;
+        TextView brand=text("쉼, 자리   ·   "+(s.demo?"체험 모드":"차량 연결 모드"),13,secondary,false);brand.setGravity(Gravity.CENTER);body.addView(brand);space(body,22);
         if(review){
             body.addView(new MoonView(false),new LinearLayout.LayoutParams(dp(90),dp(90)));space(body,14);
-            body.addView(text("이번 쉼은 어땠나요?",28,INK,true));space(body,8);body.addView(text("당신에게 편안한 환경을 조금씩 알아가요.",15,MUTED,false));space(body,24);
-            for(String feedback:new String[]{"편안했어요","추웠어요","더웠어요","소리가 거슬렸어요","자세가 불편했어요"}){Button b=button(feedback,feedback.equals("편안했어요"),()->{c.feedback(feedback);page="history";render();});LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(330),dp(52));p.bottomMargin=dp(9);body.addView(b,p);}
+            TextView reviewTitle=text("이번 쉼은 어땠나요?",28,INK,true);reviewTitle.setGravity(Gravity.CENTER);body.addView(reviewTitle);space(body,8);TextView reviewNote=text("당신에게 편안한 환경을 조금씩 알아가요.",15,MUTED,false);reviewNote.setGravity(Gravity.CENTER);body.addView(reviewNote);space(body,24);
+            for(String feedback:new String[]{"편안했어요","추웠어요","더웠어요","소리가 거슬렸어요","자세가 불편했어요"}){Button b=button(feedback,feedback.equals("편안했어요"),()->{c.feedback(feedback);page="history";render();});LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(Math.min(dp(330),getResources().getDisplayMetrics().widthPixels-dp(56)),-2);p.bottomMargin=dp(9);body.addView(b,p);}
             space(body,12);Button skip=button("평가 없이 기록하기",false,()->{c.feedback("평가하지 않음");page="history";render();});body.addView(skip);
             space(body,20);TextView report=text(s.report,12,MUTED,false);body.addView(report,new LinearLayout.LayoutParams(-1,-2));
         }else{
             body.addView(new MoonView(true),new LinearLayout.LayoutParams(dp(116),dp(116)));space(body,18);
             String heading=s.phase==RestSession.Phase.AWAKE?(passenger?"휴식 시간이 끝났어요":"일어날 시간이에요"):s.phase==RestSession.Phase.PREPARING?"편안한 쉼을 준비하고 있어요":s.phase==RestSession.Phase.FINISHING?"환경을 확인하고 있어요":passenger?"동승자가 쉬고 있어요":"지금은, 편히 쉬어가세요";
             TextView title=text(heading,27,foreground,true);title.setGravity(Gravity.CENTER);body.addView(title);space(body,12);
-            remainingLabel=text(s.phase==RestSession.Phase.RESTING?duration(c.remaining()):s.phase==RestSession.Phase.AWAKE?"좋은 쉼이었나요":"잠시만요",s.phase==RestSession.Phase.RESTING?76:32,foreground,true);remainingLabel.setGravity(Gravity.CENTER);body.addView(remainingLabel);space(body,8);
+            remainingLabel=text(s.phase==RestSession.Phase.RESTING?duration(c.remaining()):s.phase==RestSession.Phase.AWAKE?"좋은 쉼이었나요":"잠시만요",s.phase==RestSession.Phase.RESTING?76:32,foreground,true);remainingLabel.setGravity(Gravity.CENTER);remainingLabel.setSingleLine(true);remainingLabel.setAutoSizeTextTypeUniformWithConfiguration(32,76,2,android.util.TypedValue.COMPLEX_UNIT_SP);body.addView(remainingLabel,new LinearLayout.LayoutParams(-1,dp(100)));space(body,8);
             String detail=s.phase==RestSession.Phase.RESTING?new SimpleDateFormat("a h:mm",Locale.KOREA).format(new Date(s.endWall))+(passenger?"에 음악을 멈추고 조용히 알려드릴게요":"에 깨워드릴게요"):"천천히 몸을 깨우고, 준비되면 휴식을 마쳐 주세요.";
             TextView sub=text(detail,15,secondary,false);sub.setGravity(Gravity.CENTER);body.addView(sub);space(body,24);
             TextView settings=text(s.profile.mode.label+"   ·   "+s.profile.name+"   ·   "+s.profile.seat.label+"   ·   "+s.profile.soundName(),14,secondary,false);settings.setGravity(Gravity.CENTER);body.addView(settings);space(body,10);
@@ -435,14 +463,14 @@ public final class MainActivity extends Activity implements RestController.Obser
             if(s.phase==RestSession.Phase.RESTING && s.profile.sound>0){
                 TextView now=text((c.sounds.title().isEmpty()?s.profile.soundName():c.sounds.title())+"\n"+c.sounds.status(),14,secondary,false);now.setGravity(Gravity.CENTER);body.addView(now);space(body,10);
                 LinearLayout controls=row();Button pause=button("음악 일시정지",false,()->c.audioCommand("pause")),restart=button("다시 재생",false,()->c.audioCommand("play"));
-                controls.addView(pause,new LinearLayout.LayoutParams(0,dp(50),1));gap(controls,8);controls.addView(restart,new LinearLayout.LayoutParams(0,dp(50),1));body.addView(controls,new LinearLayout.LayoutParams(-1,-2));space(body,8);
+                controls.addView(pause,new LinearLayout.LayoutParams(0,-2,1));gap(controls,8);controls.addView(restart,new LinearLayout.LayoutParams(0,-2,1));body.addView(controls,new LinearLayout.LayoutParams(-1,-2));space(body,8);
                 if(s.profile.sound==3){body.addView(button("다음 곡",false,()->c.audioCommand("next")));space(body,8);}
                 body.addView(text(passenger?"종료 30초 전부터 소리가 줄어들어요. 다른 화면에서도 음악이 이어져요.":"종료 30초 전부터 소리가 줄어들어요. 앱을 벗어나면 음악을 멈춰요.",12,secondary,false));space(body,16);
                 if(passenger){body.addView(button("다른 화면으로 이동",false,()->moveTaskToBack(true)));space(body,14);}
             }
             if(!c.busy){
-                if(s.phase==RestSession.Phase.RESTING){Button extend=button(s.profile.mode==RestMode.PASSENGER_RIDE&&s.profile.arrivalEnabled?"도착 예상 시각 변경":"5분 더 쉬기",false,()->{if(s.profile.mode==RestMode.PASSENGER_RIDE&&s.profile.arrivalEnabled)chooseArrival(s.profile,()->{try{c.arrival(s.profile.arrivalWall,s.profile.wakeLeadMinutes);}catch(IllegalArgumentException invalid){toast(invalid.getMessage());}});else c.extend();});body.addView(extend,new LinearLayout.LayoutParams(dp(280),dp(52)));space(body,10);}
-                Button finish=button("휴식 마치기",true,c::finish);body.addView(finish,new LinearLayout.LayoutParams(dp(280),dp(56)));space(body,14);
+                if(s.phase==RestSession.Phase.RESTING){Button extend=button(s.profile.mode==RestMode.PASSENGER_RIDE&&s.profile.arrivalEnabled?"도착 예상 시각 변경":"5분 더 쉬기",false,()->{if(s.profile.mode==RestMode.PASSENGER_RIDE&&s.profile.arrivalEnabled)chooseArrival(s.profile,()->{try{c.arrival(s.profile.arrivalWall,s.profile.wakeLeadMinutes);}catch(IllegalArgumentException invalid){toast(invalid.getMessage());}});else c.extend();});body.addView(extend,new LinearLayout.LayoutParams(Math.min(dp(330),getResources().getDisplayMetrics().widthPixels-dp(56)),-2));space(body,10);}
+                Button finish=button("휴식 마치기",true,c::finish);body.addView(finish,new LinearLayout.LayoutParams(Math.min(dp(330),getResources().getDisplayMetrics().widthPixels-dp(56)),-2));space(body,14);
                 Button report=button("환경 적용 내역 보기",false,()->new AlertDialog.Builder(this).setTitle("적용 요청과 확인 내역").setMessage(s.report).setPositiveButton("닫기",null).show());body.addView(report);
             }
             space(body,16);TextView note=text("좌석은 자동으로 움직이지 않아요.",12,secondary,false);note.setGravity(Gravity.CENTER);body.addView(note);
@@ -466,12 +494,12 @@ public final class MainActivity extends Activity implements RestController.Obser
         private final RectF arc=new RectF();
         MoonView(boolean night){super(MainActivity.this);this.night=night;setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);}
         @Override protected void onDraw(Canvas canvas){super.onDraw(canvas);float size=Math.min(getWidth(),getHeight()),cx=getWidth()/2f,cy=getHeight()/2f;
-            p.setStyle(Paint.Style.FILL);p.setColor(night?0xFF353247:0xFFE3E0EF);canvas.drawCircle(cx,cy,size*0.46f,p);
-            p.setColor(0xFFEADBB1);canvas.drawCircle(cx-size*0.02f,cy+size*0.01f,size*0.28f,p);
-            p.setColor(night?0xFF353247:0xFFE3E0EF);canvas.drawCircle(cx+size*0.12f,cy-size*0.08f,size*0.26f,p);
-            p.setColor(night?0xFFD7D2EB:0xFFB0A8CD);canvas.drawCircle(cx+size*0.29f,cy-size*0.24f,size*0.025f,p);canvas.drawCircle(cx-size*0.30f,cy-size*0.26f,size*0.015f,p);
+            p.setStyle(Paint.Style.FILL);p.setColor(night?0xFF303236:ui.border);canvas.drawCircle(cx,cy,size*0.46f,p);
+            p.setColor(night?0xFFE1E4EB:0xFF737D8F);canvas.drawCircle(cx-size*0.02f,cy+size*0.01f,size*0.28f,p);
+            p.setColor(night?0xFF303236:ui.border);canvas.drawCircle(cx+size*0.12f,cy-size*0.08f,size*0.26f,p);
+            p.setColor(night?0xFFBCC0C8:0xFF737D8F);canvas.drawCircle(cx+size*0.29f,cy-size*0.24f,size*0.025f,p);canvas.drawCircle(cx-size*0.30f,cy-size*0.26f,size*0.015f,p);
             arc.set(cx-size*0.37f,cy-size*0.38f,cx+size*0.37f,cy+size*0.38f);
-            p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(size*0.013f);p.setColor(night?0xFF817893:0xFFC6BFD8);canvas.drawArc(arc,32,62,false,p);p.setStyle(Paint.Style.FILL);
+            p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(size*0.013f);p.setColor(night?0xFF737D8F:0xFFA9B0BD);canvas.drawArc(arc,32,62,false,p);p.setStyle(Paint.Style.FILL);
         }
     }
 }

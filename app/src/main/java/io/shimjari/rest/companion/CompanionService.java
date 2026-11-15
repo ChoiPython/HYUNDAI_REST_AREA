@@ -35,7 +35,7 @@ public final class CompanionService extends Service {
         NotificationChannel channel=new NotificationChannel("companion_link","차량과 동승자 휴대폰 연결",NotificationManager.IMPORTANCE_LOW);channel.setSound(null,null);channel.enableVibration(false);getSystemService(NotificationManager.class).createNotificationChannel(channel);
         PendingIntent open=PendingIntent.getActivity(this,71,new Intent(this,CompanionActivity.class),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         PendingIntent close=PendingIntent.getService(this,72,new Intent(this,CompanionService.class).setAction("stop"),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-        Notification notice=new Notification.Builder(this,"companion_link").setSmallIcon(R.drawable.ic_launcher).setContentTitle("host".equals(role)?"쉼자리 · 동승자 휴대폰 연결 중":"쉼자리 · 차량과 연결 중")
+        Notification notice=new Notification.Builder(this,"companion_link").setSmallIcon(R.drawable.ic_launcher).setContentTitle("host".equals(role)?"쉼, 자리 · 동승자 휴대폰 연결 중":"쉼, 자리 · 차량과 연결 중")
             .setContentText("좌석 설정·휴식 상태·기상 시각을 주고받고 있어요").setContentIntent(open).setOnlyAlertOnce(true).setOngoing(true).addAction(new Notification.Action.Builder(null,"연결 종료",close).build()).build();
         startForeground(NOTIFICATION,notice);running=true;main.postDelayed(maintenance,5000);
         connection.execute("host".equals(role)?this::host:this::phone);return START_NOT_STICKY;

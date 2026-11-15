@@ -37,7 +37,7 @@ public final class PersonalWake {
         prefs.edit().putBoolean("fired",true).commit();
         if(!context.getSystemService(NotificationManager.class).areNotificationsEnabled())return;
         PendingIntent open=PendingIntent.getActivity(context,62,new Intent(context,CompanionActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-        Notification notice=new Notification.Builder(context,CHANNEL).setSmallIcon(R.drawable.ic_launcher).setContentTitle("쉼자리 · 이제 천천히 일어나세요")
+        Notification notice=new Notification.Builder(context,CHANNEL).setSmallIcon(R.drawable.ic_launcher).setContentTitle("쉼, 자리 · 이제 천천히 일어나세요")
             .setContentText("예약한 기상 시간이 됐어요. 도착 준비를 시작해 주세요.").setContentIntent(open).setAutoCancel(true).setCategory(Notification.CATEGORY_ALARM).build();
         context.getSystemService(NotificationManager.class).notify(62,notice);
     }
