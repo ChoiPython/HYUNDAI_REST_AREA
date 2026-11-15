@@ -6,6 +6,7 @@ import io.shimjari.rest.core.RestProfile;
 import io.shimjari.rest.core.RestSession;
 import io.shimjari.rest.core.SeatId;
 import io.shimjari.rest.core.MusicTrack;
+import io.shimjari.rest.core.RestMode;
 import java.util.ArrayList;
 import java.util.List;
 import org.json.JSONArray;
@@ -24,7 +25,7 @@ public final class Store {
                 try { values.add(profile(list.getJSONObject(i))); } catch (Exception ignored) { /* Skip only an invalid profile. */ }
             }
         } catch (JSONException ignored) { /* Safe initial configuration. */ }
-        if (values.isEmpty()) values.add(new RestProfile("default", "나의 쉼", SeatId.DRIVER, 22f, 1, 25, 0));
+        if (values.isEmpty()) values.add(new RestProfile("default", "나의 쉼", SeatId.PASSENGER, 22f, 1, 25, 0));
         return values;
     }
     public void saveProfiles(List<RestProfile> profiles) {
@@ -40,7 +41,7 @@ public final class Store {
         JSONObject j = new JSONObject();
         try {
             j.put("id", value.id).put("name", value.name).put("seat", value.seat.name())
-                .put("temperature", value.temperature).put("fan", value.fan).put("minutes", value.minutes).put("sound", value.sound);
+                .put("temperature", value.temperature).put("fan", value.fan).put("minutes", value.minutes).put("sound", value.sound).put("mode",value.mode.name());
             JSONArray tracks=new JSONArray();
             for(MusicTrack t:value.music)tracks.put(new JSONObject().put("id",t.id).put("title",t.title).put("artist",t.artist).put("genre",t.genre).put("mood",t.mood).put("path",t.permalink).put("bpm",t.bpm).put("seconds",t.seconds).put("tags",t.tags));
             j.put("music",tracks);
@@ -50,6 +51,7 @@ public final class Store {
     private RestProfile profile(JSONObject j) throws JSONException {
         RestProfile p=new RestProfile(j.getString("id"), j.getString("name"), SeatId.valueOf(j.getString("seat")),
             (float) j.getDouble("temperature"), j.getInt("fan"), j.getInt("minutes"), j.getInt("sound"));
+        p.mode(RestMode.restore(j.optString("mode"),p.seat));
         JSONArray tracks=j.optJSONArray("music");
         if(tracks!=null)for(int i=0;i<Math.min(8,tracks.length());i++)try{
             JSONObject t=tracks.getJSONObject(i);p.music.add(new MusicTrack(t.getString("id"),t.optString("title"),t.optString("artist"),t.optString("genre"),t.optString("mood"),t.optString("path"),t.optDouble("bpm",0),t.getInt("seconds"),t.optString("tags")));
@@ -94,7 +96,7 @@ public final class Store {
         try {
             JSONObject row = new JSONObject().put("id", s.id).put("profile", s.profile.name).put("seat", s.profile.seat.label)
                 .put("start", s.startWall).put("end", s.finishedWall).put("temperature", s.profile.temperature)
-                .put("fan", s.profile.fan).put("feedback", feedback).put("demo", s.demo).put("report", s.report);
+                .put("fan", s.profile.fan).put("feedback", feedback).put("demo", s.demo).put("report", s.report).put("mode",s.profile.mode.name());
             next.put(row);
             for (int i = 0; i < previous.length() && next.length() < 100; i++) {
                 JSONObject old = previous.getJSONObject(i);

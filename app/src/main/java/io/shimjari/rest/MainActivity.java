@@ -27,6 +27,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 import io.shimjari.rest.core.RestProfile;
 import io.shimjari.rest.core.RestSession;
+import io.shimjari.rest.core.RestMode;
 import io.shimjari.rest.core.SeatId;
 import io.shimjari.rest.core.VehicleSnapshot;
 import io.shimjari.rest.core.MusicTrack;
@@ -35,6 +36,7 @@ import io.shimjari.rest.music.MusicController;
 import io.shimjari.rest.music.MusicRepository;
 import io.shimjari.rest.vehicle.DemoVehicleBridge;
 import io.shimjari.rest.vehicle.VehicleBridge;
+import io.shimjari.rest.vehicle.DrivingUxMonitor;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -43,7 +45,7 @@ import java.util.function.IntConsumer;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** Responsive, native Android interface, designed for a parked automotive display. */
+/** Setup on an allowed display, with separate passenger-trip and parked-driver sessions. */
 public final class MainActivity extends Activity implements RestController.Observer {
     private static final int BG = 0xFFF7F7F2, WHITE = Color.WHITE, INK = 0xFF292C32, MUTED = 0xFF777B81;
     private static final int PURPLE = 0xFF6D6698, LAVENDER = 0xFFEEEDF6, GREEN = 0xFF637C6B;
@@ -51,6 +53,8 @@ public final class MainActivity extends Activity implements RestController.Obser
     private LinearLayout root, content;
     private TextView remainingLabel;
     private String page = "home";
+    private DrivingUxMonitor uxMonitor;
+    private boolean drivingRestricted;
     private final Handler tick = new Handler(Looper.getMainLooper());
     private final Runnable ticker = new Runnable() {
         @Override public void run() {
@@ -68,9 +72,14 @@ public final class MainActivity extends Activity implements RestController.Obser
         if (saved != null) page = saved.getString("page", "home");
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         render();
+        if(getPackageManager().hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE)){
+            try{uxMonitor=new DrivingUxMonitor(this,restricted->{runOnUiThread(()->{drivingRestricted=restricted;if(restricted)c.drivingRestriction();render();});});}
+            catch(Exception|LinkageError unavailable){drivingRestricted=true;render();}
+        }
     }
     @Override protected void onStart() { super.onStart(); c.observe(this); c.visible(true); tick.post(ticker); render(); }
     @Override protected void onStop() { tick.removeCallbacks(ticker); c.remove(this); c.visible(false); super.onStop(); }
+    @Override protected void onDestroy(){if(uxMonitor!=null)uxMonitor.close();super.onDestroy();}
     @Override public void onWindowFocusChanged(boolean hasFocus){super.onWindowFocusChanged(hasFocus);if(c!=null)c.focused(hasFocus);}
     @Override protected void onSaveInstanceState(Bundle state) { state.putString("page", page); super.onSaveInstanceState(state); }
     @Override public void changed() { render(); }
@@ -109,6 +118,7 @@ public final class MainActivity extends Activity implements RestController.Obser
     private void render() {
         if (c == null || isFinishing()) return;
         remainingLabel = null;
+        if(drivingRestricted){renderRestricted();return;}
         if (c.session != null) { renderSession(); return; }
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         WindowManager.LayoutParams window = getWindow().getAttributes(); window.screenBrightness = -1; getWindow().setAttributes(window);
@@ -155,9 +165,17 @@ public final class MainActivity extends Activity implements RestController.Obser
     }
     private void home(boolean wide) {
         pageHeader("REST FOR YOUR JOURNEY", "오늘은, 편히 쉬어가세요");
+        boolean passenger=c.selected.mode==RestMode.PASSENGER_RIDE;
+        LinearLayout modes=card();label(modes,"누가 쉬고 있나요?","동승자는 이동 중에, 운전자는 주차한 뒤에 쉬어요.");space(modes,12);
+        LinearLayout modeRow=row();
+        for(RestMode mode:RestMode.values()){
+            Button choice=button(mode.label+"\n"+mode.description,c.selected.mode==mode,()->{c.selected.mode(mode);c.saveProfile();});choice.setTextSize(wide?16:13);
+            LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(0,dp(76),1);mp.rightMargin=dp(7);modeRow.addView(choice,mp);
+        }
+        modes.addView(modeRow);content.addView(modes);space(content,14);
         LinearLayout hero = row(); hero.setPadding(dp(24), dp(18), dp(18), dp(18)); hero.setBackground(shape(LAVENDER, 24));
-        LinearLayout words = column(); words.addView(text("익숙한 편안함을, 내 자리에", 22, 0xFF514A75, true)); space(words, 8);
-        words.addView(text("좋아하는 환경을 기억하고\n쉴 시간까지 함께 준비해요.", 14, 0xFF77718D, false));
+        LinearLayout words = column(); words.addView(text(passenger?"이동하는 동안, 내 자리에서 쉬어요":"주차한 뒤, 다음 여정을 준비해요", 22, 0xFF514A75, true)); space(words, 8);
+        words.addView(text(passenger?"동승자에게 맞는 음악과 휴식 시간을 준비해요.\n다른 화면으로 넘어가도 음악이 이어져요.":"P단과 정차 상태를 확인하고\n개인 환경과 기상 시간을 준비해요.", 14, 0xFF77718D, false));
         hero.addView(words, new LinearLayout.LayoutParams(0, -2, 1)); hero.addView(new MoonView(false), new LinearLayout.LayoutParams(dp(wide ? 132 : 80), dp(108)));
         content.addView(hero, new LinearLayout.LayoutParams(-1, -2)); space(content, 18);
 
@@ -165,6 +183,7 @@ public final class MainActivity extends Activity implements RestController.Obser
         title.addView(who, new LinearLayout.LayoutParams(0, -2, 1)); title.addView(button("변경", false, () -> chooseProfile())); profile.addView(title); space(profile, 14);
         LinearLayout seats = row();
         for (SeatId seat : SeatId.values()) {
+            if(!c.selected.mode.accepts(seat))continue;
             Button b = button(seat.label.replace("뒷좌석 ", "뒤 "), seat == c.selected.seat, () -> { c.selected.seat = seat; c.saveProfile(); });
             b.setTextSize(wide ? 14 : 12); b.setPadding(dp(6), dp(8), dp(6), dp(8));
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(49), 1); p.setMargins(0, 0, dp(6), 0); seats.addView(b, p);
@@ -172,10 +191,10 @@ public final class MainActivity extends Activity implements RestController.Obser
         profile.addView(seats); content.addView(profile); space(content, 14);
 
         LinearLayout environment = wide ? row() : column();
-        LinearLayout thermal = card(); label(thermal, "편안한 온도와 바람", "선호 설정 · 실제 적용 전 차량 지원 확인"); space(thermal, 12);
+        LinearLayout thermal = card(); label(thermal, "편안한 온도와 바람", passenger?"출발 전 준비할 선호 · 주행 중 자동 변경 없음":"선호 설정 · 실제 적용 전 차량 지원 확인"); space(thermal, 12);
         valueControl(thermal, "온도", String.format(Locale.KOREA, "%.1f°C", c.selected.temperature), () -> adjustTemperature(-0.5f), () -> adjustTemperature(0.5f));
         space(thermal, 7); valueControl(thermal, "풍량", c.selected.fan + "단계", () -> adjustFan(-1), () -> adjustFan(1));
-        LinearLayout rest = card(); label(rest, "얼마나 쉬어갈까요", "기상 후 준비할 시간도 생각해 주세요"); space(rest, 12);
+        LinearLayout rest = card(); label(rest, "얼마나 쉬어갈까요", passenger?"도착 시간을 생각해 직접 정해 주세요 · 내비 연동 전":"기상 후 준비할 시간도 생각해 주세요"); space(rest, 12);
         valueControl(rest, "휴식 시간", c.selected.minutes + "분", () -> adjustMinutes(-5), () -> adjustMinutes(5)); space(rest, 9);
         LinearLayout presets = row(); for (int n : new int[]{15,25,40}) {
             Button b = button(n + "분", c.selected.minutes == n, () -> { c.selected.minutes = n; c.saveProfile(); }); b.setTextSize(14);
@@ -191,7 +210,7 @@ public final class MainActivity extends Activity implements RestController.Obser
         space(sound,12);sound.addView(button("오늘의 상황으로 음악 추천받기",false,()->{page="music";render();}));
         if(c.selected.sound==3&&!c.selected.music.isEmpty()){space(sound,9);MusicTrack t=c.selected.music.get(0);sound.addView(text(t.title+" — "+t.artist+" 외 "+(c.selected.music.size()-1)+"곡 · Audius",13,PURPLE,false));}
         content.addView(sound);space(content,18);
-        Button start=button(c.busy?"환경을 확인하고 있어요…":"휴식 준비하기   →",true,this::preview); start.setEnabled(!c.busy);content.addView(start,new LinearLayout.LayoutParams(-1,dp(60)));space(content,12);
+        Button start=button(c.busy?"환경을 확인하고 있어요…":passenger?"동승자 휴식 시작   →":"주차 후 운전자 휴식 시작   →",true,this::preview); start.setEnabled(!c.busy);content.addView(start,new LinearLayout.LayoutParams(-1,dp(60)));space(content,12);
         String note=c.vehicle.isDemo()?"체험 모드에서는 실제 차량을 변경하지 않아요.":"공조 설정은 P단·정차 확인 후 지원되는 항목에만 적용해요.";
         content.addView(text(note,12,MUTED,false));
         if(!c.message.isEmpty()){space(content,8);content.addView(text(c.message,13,GREEN,false));}
@@ -262,7 +281,7 @@ public final class MainActivity extends Activity implements RestController.Obser
     private void profiles(){
         pageHeader("YOUR COMFORT", "나에게 맞는 쉼을 기억해요");
         for(RestProfile p:c.profiles){
-            LinearLayout card=card();label(card,p.name,p.seat.label+" · "+p.temperature+"°C · "+p.minutes+"분 · "+p.soundName());space(card,14);
+            LinearLayout card=card();label(card,p.name,p.mode.label+" · "+p.seat.label+" · "+p.temperature+"°C · "+p.minutes+"분 · "+p.soundName());space(card,14);
             LinearLayout actions=row();actions.addView(button(p==c.selected?"사용 중":"선택",p==c.selected,()->{c.select(p);page="home";render();}));gap(actions,8);actions.addView(button("이름 변경",false,()->editProfile(p)));
             if(c.profiles.size()>1){gap(actions,8);actions.addView(button("삭제",false,()->new AlertDialog.Builder(this).setTitle("프로필을 삭제할까요?").setMessage("이 프로필의 선호 설정이 삭제돼요. 지난 휴식 기록은 유지돼요.").setPositiveButton("삭제",(d,w)->{c.profiles.remove(p);if(c.selected==p)c.selected=c.profiles.get(0);c.saveProfile();}).setNegativeButton("취소",null).show()));}
             card.addView(actions);content.addView(card);space(content,12);
@@ -287,7 +306,8 @@ public final class MainActivity extends Activity implements RestController.Obser
             JSONObject j=rows.optJSONObject(i);if(j==null)continue;LinearLayout card=card();
             String when=new SimpleDateFormat("M월 d일  HH:mm",Locale.KOREA).format(new Date(j.optLong("start")));
             label(card,j.optString("profile")+" · "+j.optString("feedback"),when+(j.optBoolean("demo")?" · 체험 기록":" · 차량 연결 기록"));space(card,9);
-            card.addView(text(j.optString("seat")+"   "+j.optDouble("temperature")+"°C   풍량 "+j.optInt("fan"),14,INK,false));space(card,10);
+            String modeLabel=RestMode.restore(j.optString("mode"),j.optString("seat").equals(SeatId.DRIVER.label)?SeatId.DRIVER:SeatId.PASSENGER).label;
+            card.addView(text(modeLabel+" · "+j.optString("seat")+"   "+j.optDouble("temperature")+"°C   풍량 "+j.optInt("fan"),14,INK,false));space(card,10);
             if(j.optString("feedback").equals("추웠어요"))card.addView(text("다음에는 선호 온도를 조금 높여 보세요.",13,GREEN,false));
             if(j.optString("feedback").equals("더웠어요"))card.addView(text("다음에는 선호 온도를 조금 낮춰 보세요.",13,GREEN,false));
             card.addView(button("환경 적용 내역",false,()->new AlertDialog.Builder(this).setTitle("환경 적용과 복원 내역").setMessage(j.optString("report")).setPositiveButton("닫기",null).show()));
@@ -307,9 +327,9 @@ public final class MainActivity extends Activity implements RestController.Obser
         alarm.addView(text(c.alarms.exactAvailable()?"정확한 시간의 알림을 사용할 수 있어요.":"절전 중 알림이 지연될 수 있어요. 정확한 알림 권한을 설정할 수 있어요.",13,MUTED,false));
         if(Build.VERSION.SDK_INT>=31&&!c.alarms.exactAvailable()){space(alarm,8);alarm.addView(button("정확한 알림 허용",false,()->{try{startActivity(new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,android.net.Uri.parse("package:"+getPackageName())));}catch(Exception e){toast("기기 설정에서 알람 권한을 확인해 주세요.");}}));}
         content.addView(alarm);space(content,14);
-        LinearLayout privacy=card();label(privacy,"내 기기에 저장하는 프로필과 기록","연락처·GPS 위치·마이크·통화 내용을 수집하지 않아요.\n선택한 음악·지역 예보를 조회할 때 Audius·Open-Meteo에 연결해요.\n음악은 앱이 화면에 보일 때만 재생돼요.");space(privacy,12);
+        LinearLayout privacy=card();label(privacy,"내 기기에 저장하는 프로필과 기록","연락처·GPS 위치·마이크·통화 내용을 수집하지 않아요.\n선택한 음악·지역 예보를 조회할 때 Audius·Open-Meteo에 연결해요.\n동승자 음악은 알림과 함께 배경에서 이어지고, 운전자 음악은 화면을 벗어나면 멈춰요.");space(privacy,12);
         privacy.addView(button("휴식 기록 지우기",false,()->new AlertDialog.Builder(this).setTitle("모든 휴식 기록을 지울까요?").setMessage("삭제한 기록은 되돌릴 수 없어요. 프로필은 유지돼요.").setPositiveButton("기록 삭제",(d,w)->{c.store.clearHistory();toast("휴식 기록을 지웠어요.");}).setNegativeButton("취소",null).show()));content.addView(privacy);space(content,14);
-        content.addView(text("쉼자리 1.1.0\n정차한 차량에서의 휴식을 돕는 앱입니다.\n좌석 자동 이동·습도 제어·수면 단계 판정은 제공하지 않아요.",13,MUTED,false));
+        content.addView(text("쉼자리 1.2.0\n주행 중 동승자 휴식과 주차 후 운전자 휴식을 구분해요.\n운전자 화면 제한을 해제하거나 좌석을 자동 이동하지 않아요.\n습도 제어·수면 단계 판정은 제공하지 않아요.",13,MUTED,false));
         if(c.vehicle instanceof DemoVehicleBridge){space(content,18);content.addView(button("체험 환경: "+(((DemoVehicleBridge)c.vehicle).simulatedParked?"주차 중":"주행 중"),false,()->{DemoVehicleBridge d=(DemoVehicleBridge)c.vehicle;d.simulatedParked=!d.simulatedParked;render();}));}
     }
     private void connectPleos(){
@@ -338,27 +358,42 @@ public final class MainActivity extends Activity implements RestController.Obser
         else startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,getPackageName()));
     }
     private void preview(){
+        if(c.selected.mode==RestMode.PASSENGER_RIDE){
+            RestProfile p=c.selected;
+            String change=p.name+" · "+p.seat.label+" · "+p.minutes+"분\n소리: "+p.soundName()+"\n\n운전 중인 사람은 이용할 수 없어요.\n공용 스피커 사용은 함께 탄 사람과 먼저 결정해 주세요.\n음악은 다른 화면에서도 이어지고 종료 시 조용히 안내해요.\n주행 중 공조와 좌석은 자동으로 변경하지 않아요.";
+            if(!c.alarms.notificationsAvailable())change+="\n\n알림이 꺼져 있어 화면을 벗어나면 종료 안내를 놓칠 수 있어요.";
+            new AlertDialog.Builder(this).setTitle("동승자 휴식을 시작할까요?").setMessage(change)
+                .setPositiveButton("음악·타이머 시작",(d,w)->c.begin(new VehicleSnapshot(),false,false))
+                .setNeutralButton("출발 전 공조도 준비",(d,w)->previewEnvironment()).setNegativeButton("취소",null).show();
+            return;
+        }
+        previewEnvironment();
+    }
+    private void previewEnvironment(){
         c.preview(new VehicleBridge.Result<VehicleSnapshot>(){
             @Override public void ok(VehicleSnapshot snapshot){
                 RestProfile p=c.selected;
+                boolean driver=p.mode==RestMode.DRIVER_PARKED;
                 String change=(c.vehicle.isDemo()?"체험 환경에 적용해요. 실제 차량은 바뀌지 않아요.\n\n":"P단과 정차 상태를 확인한 뒤 지원되는 항목만 적용해요.\n\n")
                     +p.name+" · "+p.seat.label+" · "+p.minutes+"분\n온도: "+(snapshot.acceptsTemperature(p.temperature)?snapshot.temperature+" → "+p.temperature+"°C":"지원 범위 확인 필요 · 현재 설정 유지")
                     +"\n풍량: "+(snapshot.acceptsFan(p.fan)?snapshot.fan+" → "+p.fan+"단계":"지원 범위 확인 필요 · 현재 설정 유지")+"\n소리: "+p.soundName()
                     +"\n\n공용 공조와 스피커는 다른 탑승자에게도 영향을 줄 수 있어요.";
                 if(!c.alarms.notificationsAvailable())change+="\n알림이 꺼져 있어요. 앱을 열어 두거나 설정에서 알림을 허용해 주세요.";
                 if(!c.alarms.exactAvailable())change+="\n절전 중에는 기상 알림이 지연될 수 있어요.";
+                if(driver)change+="\n\n운전을 마치고 주차한 경우에만 시작해 주세요. 정차 확인이 불가능하면 공조 없이 타이머만 사용해요.";
                 new AlertDialog.Builder(MainActivity.this).setTitle("이번 쉼을 준비할까요?").setMessage(change)
-                    .setPositiveButton("환경 적용 후 시작",(d,w)->c.begin(snapshot,true))
-                    .setNeutralButton("타이머만 시작",(d,w)->c.begin(snapshot,false)).setNegativeButton("취소",null).show();
+                    .setPositiveButton(driver?"주차했고 환경 적용 후 시작":"환경 적용 후 시작",(d,w)->c.begin(snapshot,true,driver))
+                    .setNeutralButton(driver?"주차했고 타이머만 시작":"공조 없이 시작",(d,w)->c.begin(snapshot,false,driver)).setNegativeButton("취소",null).show();
             }
-            @Override public void fail(String reason){new AlertDialog.Builder(MainActivity.this).setTitle("차량 환경을 확인하지 못했어요").setMessage(reason+"\n환경 변경 없이 타이머를 시작할 수 있어요.").setPositiveButton("타이머만 시작",(d,w)->c.begin(new VehicleSnapshot(),false)).setNegativeButton("닫기",null).show();}
+            @Override public void fail(String reason){boolean driver=c.selected.mode==RestMode.DRIVER_PARKED;new AlertDialog.Builder(MainActivity.this).setTitle("차량 환경을 확인하지 못했어요").setMessage(reason+"\n환경 변경 없이 타이머를 시작할 수 있어요."+(driver?"\n실제로 주차한 경우에만 확인해 주세요.":"")).setPositiveButton(driver?"주차했고 타이머 시작":"공조 없이 시작",(d,w)->c.begin(new VehicleSnapshot(),false,driver)).setNegativeButton("닫기",null).show();}
         });
     }
     private void showSnapshot(VehicleSnapshot s){new AlertDialog.Builder(this).setTitle("차량에서 확인한 환경").setMessage("온도: "+(s.temperature==null?"확인되지 않음":s.temperature+"°C")+"\n"+s.temperatureNote+"\n\n풍량: "+(s.fan==null?"확인되지 않음":s.fan)+"\n"+s.fanNote).setPositiveButton("닫기",null).show();}
     private void renderSession(){
         RestSession s=c.session;boolean review=s.phase==RestSession.Phase.REVIEW;
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        WindowManager.LayoutParams window=getWindow().getAttributes();window.screenBrightness=review?-1:0.12f;getWindow().setAttributes(window);
+        boolean passenger=s.profile.mode==RestMode.PASSENGER_RIDE;
+        if(passenger)getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);else getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        WindowManager.LayoutParams window=getWindow().getAttributes();window.screenBrightness=review||passenger?-1:0.12f;getWindow().setAttributes(window);
         LinearLayout screen=column();screen.setBackgroundColor(review?BG:0xFF252434);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);LinearLayout body=column();body.setGravity(Gravity.CENTER_HORIZONTAL);body.setPadding(dp(28),dp(28),dp(28),dp(24));scroll.addView(body);screen.addView(scroll,new LinearLayout.LayoutParams(-1,-1));
         int foreground=review?INK:0xFFF4F0EB,secondary=review?MUTED:0xFFB4AFC8;
@@ -371,19 +406,20 @@ public final class MainActivity extends Activity implements RestController.Obser
             space(body,20);TextView report=text(s.report,12,MUTED,false);body.addView(report,new LinearLayout.LayoutParams(-1,-2));
         }else{
             body.addView(new MoonView(true),new LinearLayout.LayoutParams(dp(116),dp(116)));space(body,18);
-            String heading=s.phase==RestSession.Phase.AWAKE?"일어날 시간이에요":s.phase==RestSession.Phase.PREPARING?"편안한 쉼을 준비하고 있어요":s.phase==RestSession.Phase.FINISHING?"환경을 확인하고 있어요":"지금은, 편히 쉬어가세요";
+            String heading=s.phase==RestSession.Phase.AWAKE?(passenger?"휴식 시간이 끝났어요":"일어날 시간이에요"):s.phase==RestSession.Phase.PREPARING?"편안한 쉼을 준비하고 있어요":s.phase==RestSession.Phase.FINISHING?"환경을 확인하고 있어요":passenger?"동승자가 쉬고 있어요":"지금은, 편히 쉬어가세요";
             TextView title=text(heading,27,foreground,true);title.setGravity(Gravity.CENTER);body.addView(title);space(body,12);
             remainingLabel=text(s.phase==RestSession.Phase.RESTING?duration(c.remaining()):s.phase==RestSession.Phase.AWAKE?"좋은 쉼이었나요":"잠시만요",s.phase==RestSession.Phase.RESTING?76:32,foreground,true);remainingLabel.setGravity(Gravity.CENTER);body.addView(remainingLabel);space(body,8);
-            String detail=s.phase==RestSession.Phase.RESTING?new SimpleDateFormat("a h:mm",Locale.KOREA).format(new Date(s.endWall))+"에 깨워드릴게요":"천천히 몸을 깨우고, 준비되면 휴식을 마쳐 주세요.";
+            String detail=s.phase==RestSession.Phase.RESTING?new SimpleDateFormat("a h:mm",Locale.KOREA).format(new Date(s.endWall))+(passenger?"에 음악을 멈추고 조용히 알려드릴게요":"에 깨워드릴게요"):"천천히 몸을 깨우고, 준비되면 휴식을 마쳐 주세요.";
             TextView sub=text(detail,15,secondary,false);sub.setGravity(Gravity.CENTER);body.addView(sub);space(body,24);
-            TextView settings=text(s.profile.name+"   ·   "+s.profile.seat.label+"   ·   "+s.profile.soundName(),14,secondary,false);settings.setGravity(Gravity.CENTER);body.addView(settings);space(body,10);
-            TextView env=text("선호 설정   "+s.profile.temperature+"°C   /   풍량 "+s.profile.fan+"단계",13,secondary,false);env.setGravity(Gravity.CENTER);body.addView(env);space(body,20);
+            TextView settings=text(s.profile.mode.label+"   ·   "+s.profile.name+"   ·   "+s.profile.seat.label+"   ·   "+s.profile.soundName(),14,secondary,false);settings.setGravity(Gravity.CENTER);body.addView(settings);space(body,10);
+            TextView env=text(passenger?"주행 중에는 공조와 좌석을 자동으로 바꾸지 않아요":"선호 설정   "+s.profile.temperature+"°C   /   풍량 "+s.profile.fan+"단계",13,secondary,false);env.setGravity(Gravity.CENTER);body.addView(env);space(body,20);
             if(s.phase==RestSession.Phase.RESTING && s.profile.sound>0){
                 TextView now=text((c.sounds.title().isEmpty()?s.profile.soundName():c.sounds.title())+"\n"+c.sounds.status(),14,secondary,false);now.setGravity(Gravity.CENTER);body.addView(now);space(body,10);
-                LinearLayout controls=row();Button pause=button("음악 일시정지",false,c.sounds::pause),restart=button("다시 재생",false,c.sounds::restart);
+                LinearLayout controls=row();Button pause=button("음악 일시정지",false,()->c.audioCommand("pause")),restart=button("다시 재생",false,()->c.audioCommand("play"));
                 controls.addView(pause,new LinearLayout.LayoutParams(0,dp(50),1));gap(controls,8);controls.addView(restart,new LinearLayout.LayoutParams(0,dp(50),1));body.addView(controls,new LinearLayout.LayoutParams(-1,-2));space(body,8);
-                if(s.profile.sound==3){body.addView(button("다음 곡",false,c.sounds::next));space(body,8);}
-                body.addView(text("종료 30초 전부터 소리가 줄어들어요. 앱을 벗어나면 음악을 멈춰요.",12,secondary,false));space(body,16);
+                if(s.profile.sound==3){body.addView(button("다음 곡",false,()->c.audioCommand("next")));space(body,8);}
+                body.addView(text(passenger?"종료 30초 전부터 소리가 줄어들어요. 다른 화면에서도 음악이 이어져요.":"종료 30초 전부터 소리가 줄어들어요. 앱을 벗어나면 음악을 멈춰요.",12,secondary,false));space(body,16);
+                if(passenger){body.addView(button("다른 화면으로 이동",false,()->moveTaskToBack(true)));space(body,14);}
             }
             if(!c.busy){
                 if(s.phase==RestSession.Phase.RESTING){Button extend=button("5분 더 쉬기",false,c::extend);body.addView(extend,new LinearLayout.LayoutParams(dp(280),dp(52)));space(body,10);}
@@ -392,6 +428,14 @@ public final class MainActivity extends Activity implements RestController.Obser
             }
             space(body,16);TextView note=text("좌석은 자동으로 움직이지 않아요.",12,secondary,false);note.setGravity(Gravity.CENTER);body.addView(note);
         }
+        applyRoot(screen);
+    }
+    private void renderRestricted(){
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        WindowManager.LayoutParams window=getWindow().getAttributes();window.screenBrightness=-1;getWindow().setAttributes(window);
+        LinearLayout screen=column();screen.setGravity(Gravity.CENTER);screen.setPadding(dp(30),dp(30),dp(30),dp(30));screen.setBackgroundColor(BG);
+        TextView title=text(c.passengerAudioSession()?"동승자 휴식이 이어지고 있어요":"차량의 화면 제한이 적용 중이에요",26,INK,true);title.setGravity(Gravity.CENTER);screen.addView(title);space(screen,18);
+        TextView note=text("상세 설정은 주차 후 또는 사용이 허용된 승객 화면에서 해 주세요.\n음악은 차량 미디어 제어로 조작할 수 있어요.",16,MUTED,false);note.setGravity(Gravity.CENTER);screen.addView(note);
         applyRoot(screen);
     }
     private String duration(long millis){long seconds=(millis+999)/1000;return String.format(Locale.KOREA,"%02d:%02d",seconds/60,seconds%60);}
