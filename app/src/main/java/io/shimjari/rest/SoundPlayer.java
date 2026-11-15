@@ -123,7 +123,7 @@ public final class SoundPlayer {
     public void remaining(long millis){fade=Math.max(0,Math.min(1,millis/30000f));applyVolume();}
     public void pause(){userPaused=true;transientPaused=false;if(player!=null&&prepared)player.pause();abandonFocus();state("일시정지 · 다시 재생하면 곡의 처음부터 시작해요.",PlaybackState.STATE_PAUSED);}
     public void restart(){if(key.isEmpty())return;releasePlayer();abandonFocus();generation++;startSelection();}
-    public void resume(RestProfile profile){if(key.isEmpty())play(profile);else restart();}
+    public void resume(RestProfile profile){String previous=key;play(profile);if(!previous.isEmpty()&&previous.equals(key))restart();}
     public void next(){if(queue.isEmpty())return;userPaused=false;transientPaused=false;index=(index+1)%queue.size();if(requestFocus()){mediaSession.setActive(true);prepareTrack();}}
     public void previous(){if(queue.isEmpty())return;userPaused=false;transientPaused=false;index=(index+queue.size()-1)%queue.size();if(requestFocus()){mediaSession.setActive(true);prepareTrack();}}
     public void track(String id){for(int n=0;n<queue.size();n++)if(queue.get(n).id.equals(id)){index=n;userPaused=false;transientPaused=false;if(requestFocus()){mediaSession.setActive(true);prepareTrack();}return;}}

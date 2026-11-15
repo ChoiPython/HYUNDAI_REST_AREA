@@ -3,6 +3,7 @@ package io.shimjari.rest;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.TimePickerDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Canvas;
@@ -28,6 +29,8 @@ import android.widget.Toast;
 import io.shimjari.rest.core.RestProfile;
 import io.shimjari.rest.core.RestSession;
 import io.shimjari.rest.core.RestMode;
+import io.shimjari.rest.core.WakePlan;
+import io.shimjari.rest.core.FeedbackAdvice;
 import io.shimjari.rest.core.SeatId;
 import io.shimjari.rest.core.VehicleSnapshot;
 import io.shimjari.rest.core.MusicTrack;
@@ -111,7 +114,7 @@ public final class MainActivity extends Activity implements RestController.Obser
     }
     private void nav(String key, String title, String icon, LinearLayout rail, boolean wide) {
         Button b = button((wide ? icon + "   " : "") + title, page.equals(key), () -> { page = key; render(); });
-        b.setTextSize(15); LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(wide ? -1 : 0, dp(54));
+        b.setTextSize(wide?15:13);if(!wide){b.setPadding(dp(4),dp(8),dp(4),dp(8));b.setSingleLine(true);} LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(wide ? -1 : 0, dp(54));
         if (wide) p.bottomMargin = dp(10); else { p.weight = 1; p.setMargins(dp(3), 0, dp(3), 0); }
         rail.addView(b, p);
     }
@@ -169,10 +172,11 @@ public final class MainActivity extends Activity implements RestController.Obser
         LinearLayout modes=card();label(modes,"누가 쉬고 있나요?","동승자는 이동 중에, 운전자는 주차한 뒤에 쉬어요.");space(modes,12);
         LinearLayout modeRow=row();
         for(RestMode mode:RestMode.values()){
-            Button choice=button(mode.label+"\n"+mode.description,c.selected.mode==mode,()->{c.selected.mode(mode);c.saveProfile();});choice.setTextSize(wide?16:13);
+            Button choice=button(mode.label+"\n"+(wide?mode.description:mode==RestMode.PASSENGER_RIDE?"이동 중 내 자리에서":"주차한 뒤 운전자 쉼"),c.selected.mode==mode,()->{c.selected.mode(mode);c.saveProfile();});choice.setTextSize(wide?16:13);
             LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(0,dp(76),1);mp.rightMargin=dp(7);modeRow.addView(choice,mp);
         }
         modes.addView(modeRow);content.addView(modes);space(content,14);
+        content.addView(button("휴대폰과 차량 연결",false,()->startActivity(new Intent(this,CompanionActivity.class))));space(content,14);
         LinearLayout hero = row(); hero.setPadding(dp(24), dp(18), dp(18), dp(18)); hero.setBackground(shape(LAVENDER, 24));
         LinearLayout words = column(); words.addView(text(passenger?"이동하는 동안, 내 자리에서 쉬어요":"주차한 뒤, 다음 여정을 준비해요", 22, 0xFF514A75, true)); space(words, 8);
         words.addView(text(passenger?"동승자에게 맞는 음악과 휴식 시간을 준비해요.\n다른 화면으로 넘어가도 음악이 이어져요.":"P단과 정차 상태를 확인하고\n개인 환경과 기상 시간을 준비해요.", 14, 0xFF77718D, false));
@@ -189,12 +193,21 @@ public final class MainActivity extends Activity implements RestController.Obser
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(49), 1); p.setMargins(0, 0, dp(6), 0); seats.addView(b, p);
         }
         profile.addView(seats); content.addView(profile); space(content, 14);
+        if(passenger){
+            LinearLayout arrival=card();label(arrival,"도착 전에 깨워 주세요",c.selected.arrivalEnabled?"직접 입력한 도착 "+clock(c.selected.arrivalWall)+" · "+c.selected.wakeLeadMinutes+"분 전 기상":"직접 입력하거나 휴대폰 연결 화면에서 차량 내비게이션을 연동해요.");space(arrival,10);
+            arrival.addView(button("도착 예상 시각 설정",false,()->chooseArrival(c.selected,()->c.saveProfile())));space(arrival,9);
+            LinearLayout leads=row();for(int lead:new int[]{1,5,10,15}){Button b=button(lead+"분 전",c.selected.wakeLeadMinutes==lead,()->{c.selected.wakeLeadMinutes=lead;c.saveProfile();});b.setTextSize(13);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(48),1);p.rightMargin=dp(5);leads.addView(b,p);}arrival.addView(leads);
+            if(c.selected.arrivalEnabled){space(arrival,8);arrival.addView(button("휴식 시간 기준으로 바꾸기",false,()->{c.selected.arrivalEnabled=false;c.saveProfile();}));}
+            content.addView(arrival);space(content,14);
+        }
+        FeedbackAdvice advice=FeedbackAdvice.from(c.selected,c.store.lastFeedback(c.selected));
+        if(advice!=null){LinearLayout suggestion=card();label(suggestion,"지난 휴식을 바탕으로 제안해요",advice.reason);space(suggestion,10);suggestion.addView(button("추천 설정을 선호에 저장",false,()->{c.selected.temperature=advice.profile.temperature;c.selected.sound=advice.profile.sound;c.saveProfile();}));content.addView(suggestion);space(content,14);}
 
         LinearLayout environment = wide ? row() : column();
         LinearLayout thermal = card(); label(thermal, "편안한 온도와 바람", passenger?"출발 전 준비할 선호 · 주행 중 자동 변경 없음":"선호 설정 · 실제 적용 전 차량 지원 확인"); space(thermal, 12);
         valueControl(thermal, "온도", String.format(Locale.KOREA, "%.1f°C", c.selected.temperature), () -> adjustTemperature(-0.5f), () -> adjustTemperature(0.5f));
         space(thermal, 7); valueControl(thermal, "풍량", c.selected.fan + "단계", () -> adjustFan(-1), () -> adjustFan(1));
-        LinearLayout rest = card(); label(rest, "얼마나 쉬어갈까요", passenger?"도착 시간을 생각해 직접 정해 주세요 · 내비 연동 전":"기상 후 준비할 시간도 생각해 주세요"); space(rest, 12);
+        LinearLayout rest = card(); label(rest, "얼마나 쉬어갈까요", passenger&&c.selected.arrivalEnabled?"현재 도착 전 기상 예약이 휴식 시간보다 우선해요":passenger?"도착 시간을 생각해 직접 정해 주세요":"기상 후 준비할 시간도 생각해 주세요"); space(rest, 12);
         valueControl(rest, "휴식 시간", c.selected.minutes + "분", () -> adjustMinutes(-5), () -> adjustMinutes(5)); space(rest, 9);
         LinearLayout presets = row(); for (int n : new int[]{15,25,40}) {
             Button b = button(n + "분", c.selected.minutes == n, () -> { c.selected.minutes = n; c.saveProfile(); }); b.setTextSize(14);
@@ -224,6 +237,11 @@ public final class MainActivity extends Activity implements RestController.Obser
     private void adjustTemperature(float delta){c.selected.temperature=Math.max(16,Math.min(30,c.selected.temperature+delta));c.saveProfile();}
     private void adjustFan(int delta){c.selected.fan=Math.max(1,Math.min(8,c.selected.fan+delta));c.saveProfile();}
     private void adjustMinutes(int delta){c.selected.minutes=Math.max(1,Math.min(180,c.selected.minutes+delta));c.saveProfile();}
+    private String clock(long wall){return new SimpleDateFormat("a h:mm",Locale.KOREA).format(new Date(wall));}
+    private void chooseArrival(RestProfile profile,Runnable saved){
+        java.util.Calendar date=java.util.Calendar.getInstance();date.setTimeInMillis(profile.arrivalWall>System.currentTimeMillis()?profile.arrivalWall:System.currentTimeMillis()+30*60_000L);
+        new TimePickerDialog(this,(view,hour,minute)->{try{long wall=WakePlan.nextTime(System.currentTimeMillis(),hour,minute,java.util.TimeZone.getDefault());WakePlan.deadline(System.currentTimeMillis(),wall,profile.wakeLeadMinutes);if(c.session!=null&&profile==c.session.profile){c.arrival(wall,profile.wakeLeadMinutes);return;}profile.arrivalWall=wall;profile.arrivalEnabled=true;saved.run();}catch(IllegalArgumentException invalid){toast(invalid.getMessage());}},date.get(java.util.Calendar.HOUR_OF_DAY),date.get(java.util.Calendar.MINUTE),true).show();
+    }
     private void musicChoices(LinearLayout parent,String[] labels,int selected,IntConsumer choose){
         int columns=getResources().getConfiguration().screenWidthDp>=800?labels.length:Math.min(3,labels.length);
         LinearLayout line=null;
@@ -329,7 +347,8 @@ public final class MainActivity extends Activity implements RestController.Obser
         content.addView(alarm);space(content,14);
         LinearLayout privacy=card();label(privacy,"내 기기에 저장하는 프로필과 기록","연락처·GPS 위치·마이크·통화 내용을 수집하지 않아요.\n선택한 음악·지역 예보를 조회할 때 Audius·Open-Meteo에 연결해요.\n동승자 음악은 알림과 함께 배경에서 이어지고, 운전자 음악은 화면을 벗어나면 멈춰요.");space(privacy,12);
         privacy.addView(button("휴식 기록 지우기",false,()->new AlertDialog.Builder(this).setTitle("모든 휴식 기록을 지울까요?").setMessage("삭제한 기록은 되돌릴 수 없어요. 프로필은 유지돼요.").setPositiveButton("기록 삭제",(d,w)->{c.store.clearHistory();toast("휴식 기록을 지웠어요.");}).setNegativeButton("취소",null).show()));content.addView(privacy);space(content,14);
-        content.addView(text("쉼자리 1.2.0\n주행 중 동승자 휴식과 주차 후 운전자 휴식을 구분해요.\n운전자 화면 제한을 해제하거나 좌석을 자동 이동하지 않아요.\n습도 제어·수면 단계 판정은 제공하지 않아요.",13,MUTED,false));
+        content.addView(button("휴대폰과 차량 연결",false,()->startActivity(new Intent(this,CompanionActivity.class))));space(content,12);
+        content.addView(text("쉼자리 1.3.0\n도착 전 개인 기상과 같은 네트워크의 휴대폰 연결을 지원해요.\n차량 내비게이션 연동은 서비스와 권한이 지원되는 경우에 사용할 수 있어요.\n운전자 화면 제한을 해제하거나 좌석을 자동 이동하지 않아요.\n습도 제어·수면 단계 판정은 제공하지 않아요.",13,MUTED,false));
         if(c.vehicle instanceof DemoVehicleBridge){space(content,18);content.addView(button("체험 환경: "+(((DemoVehicleBridge)c.vehicle).simulatedParked?"주차 중":"주행 중"),false,()->{DemoVehicleBridge d=(DemoVehicleBridge)c.vehicle;d.simulatedParked=!d.simulatedParked;render();}));}
     }
     private void connectPleos(){
@@ -422,7 +441,7 @@ public final class MainActivity extends Activity implements RestController.Obser
                 if(passenger){body.addView(button("다른 화면으로 이동",false,()->moveTaskToBack(true)));space(body,14);}
             }
             if(!c.busy){
-                if(s.phase==RestSession.Phase.RESTING){Button extend=button("5분 더 쉬기",false,c::extend);body.addView(extend,new LinearLayout.LayoutParams(dp(280),dp(52)));space(body,10);}
+                if(s.phase==RestSession.Phase.RESTING){Button extend=button(s.profile.mode==RestMode.PASSENGER_RIDE&&s.profile.arrivalEnabled?"도착 예상 시각 변경":"5분 더 쉬기",false,()->{if(s.profile.mode==RestMode.PASSENGER_RIDE&&s.profile.arrivalEnabled)chooseArrival(s.profile,()->{try{c.arrival(s.profile.arrivalWall,s.profile.wakeLeadMinutes);}catch(IllegalArgumentException invalid){toast(invalid.getMessage());}});else c.extend();});body.addView(extend,new LinearLayout.LayoutParams(dp(280),dp(52)));space(body,10);}
                 Button finish=button("휴식 마치기",true,c::finish);body.addView(finish,new LinearLayout.LayoutParams(dp(280),dp(56)));space(body,14);
                 Button report=button("환경 적용 내역 보기",false,()->new AlertDialog.Builder(this).setTitle("적용 요청과 확인 내역").setMessage(s.report).setPositiveButton("닫기",null).show());body.addView(report);
             }

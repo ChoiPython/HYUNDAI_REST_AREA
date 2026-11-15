@@ -12,6 +12,9 @@ public final class RestProfile {
     public int fan;
     public int minutes;
     public int sound;
+    public boolean arrivalEnabled;
+    public long arrivalWall;
+    public int wakeLeadMinutes=5;
     public final List<MusicTrack> music=new ArrayList<>();
 
     public RestProfile(String id, String name, SeatId seat, float temperature, int fan, int minutes, int sound) {
@@ -22,7 +25,7 @@ public final class RestProfile {
         this.temperature = temperature; this.fan = fan; this.minutes = minutes; this.sound = sound;
         this.mode = seat == SeatId.DRIVER ? RestMode.DRIVER_PARKED : RestMode.PASSENGER_RIDE;
     }
-    public RestProfile copy() { RestProfile copy=new RestProfile(id,name,seat,temperature,fan,minutes,sound);copy.mode=mode;copy.music.addAll(music);return copy; }
+    public RestProfile copy() { RestProfile copy=new RestProfile(id,name,seat,temperature,fan,minutes,sound);copy.mode=mode;copy.music.addAll(music);copy.arrivalEnabled=arrivalEnabled;copy.arrivalWall=arrivalWall;copy.wakeLeadMinutes=wakeLeadMinutes;return copy; }
     public void mode(RestMode next) { mode=next;if(!mode.accepts(seat))seat=mode.defaultSeat(); }
     public String soundName() { return sound==3?"추천 음악 · Audius":sound == 1 ? "잔잔한 선율" : sound == 2 ? "빗소리" : "조용히"; }
 }

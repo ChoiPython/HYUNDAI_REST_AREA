@@ -19,7 +19,7 @@ public final class RestSession {
     }
     public void start(long wall, long elapsed, int boot) {
         startWall = wall; startElapsed = elapsed; bootCount = boot;
-        long duration = profile.minutes * 60_000L;
+        long duration = profile.mode==RestMode.PASSENGER_RIDE&&profile.arrivalEnabled?WakePlan.deadline(wall,profile.arrivalWall,profile.wakeLeadMinutes)-wall:profile.minutes*60_000L;
         endWall = wall + duration; endElapsed = elapsed + duration;
         phase = Phase.RESTING;
     }
@@ -30,6 +30,7 @@ public final class RestSession {
     }
     public void extendFiveMinutes() {
         if (phase != Phase.RESTING) return;
+        if(profile.mode==RestMode.PASSENGER_RIDE&&profile.arrivalEnabled)return;
         long maximum = startElapsed + 180 * 60_000L;
         long delta = Math.min(5 * 60_000L, Math.max(0, maximum - endElapsed));
         endElapsed += delta; endWall += delta;

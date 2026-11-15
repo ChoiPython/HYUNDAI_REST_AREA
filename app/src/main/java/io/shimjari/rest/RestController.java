@@ -9,11 +9,13 @@ import android.provider.Settings;
 import io.shimjari.rest.core.RestProfile;
 import io.shimjari.rest.core.RestSession;
 import io.shimjari.rest.core.RestMode;
+import io.shimjari.rest.core.WakePlan;
 import io.shimjari.rest.core.VehicleSnapshot;
 import io.shimjari.rest.vehicle.DemoVehicleBridge;
 import io.shimjari.rest.vehicle.PleosVehicleBridge;
 import io.shimjari.rest.vehicle.VehicleBridge;
 import io.shimjari.rest.music.MusicController;
+import io.shimjari.rest.companion.CompanionManager;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -26,6 +28,7 @@ public final class RestController {
     public final AlarmScheduler alarms;
     public final SoundPlayer sounds;
     public final MusicController music;
+    public final CompanionManager companions;
     public List<RestProfile> profiles;
     public RestProfile selected;
     public RestSession session;
@@ -40,6 +43,7 @@ public final class RestController {
     public RestController(Context context) {
         this.context = context.getApplicationContext(); store = new Store(context); alarms = new AlarmScheduler(context); sounds = new SoundPlayer(context);
         sounds.listener(this::publish);sounds.commands(this::audioCommand);music=new MusicController(context,this::publish);
+        companions=new CompanionManager(context,this,this::publish);
         profiles = store.profiles(); selected = profiles.get(0);
         for (RestProfile p : profiles) if (p.id.equals(store.selectedId())) selected = p;
         session = store.session();
@@ -103,6 +107,15 @@ public final class RestController {
         else {sounds.play(session.profile);if("next".equals(action))sounds.next();else if("previous".equals(action))sounds.previous();else if(action.startsWith("track:"))sounds.track(action.substring(6));}
     }
     public void saveProfile() { store.saveProfiles(profiles); store.selectedId(selected.id); publish(); }
+    public void beginPassengerFromPhone(RestProfile profile){
+        if(session!=null||busy)return;
+        if(profile.mode!=RestMode.PASSENGER_RIDE||!profile.mode.accepts(profile.seat))return;
+        prepare(profile.copy(),new VehicleSnapshot(),false);
+    }
+    public void remoteMusic(RestProfile profile){
+        if(session==null||session.phase!=RestSession.Phase.RESTING||session.profile.mode!=RestMode.PASSENGER_RIDE||!session.profile.id.equals(profile.id))return;
+        session.profile.sound=profile.sound;session.profile.music.clear();session.profile.music.addAll(profile.music);store.session(session);if(profile.sound==0)audioCommand("stop");
+    }
     public void select(RestProfile profile) { if (session != null) return; selected = profile; saveProfile(); }
     public void drivingRestriction(){
         if(session!=null&&session.profile.mode==RestMode.DRIVER_PARKED&&session.phase==RestSession.Phase.RESTING){
@@ -131,6 +144,8 @@ public final class RestController {
     public void begin(VehicleSnapshot snapshot, boolean applyEnvironment, boolean parkConfirmed) {
         if (session != null || busy) return;
         RestProfile requested=selected.copy();
+        try{if(requested.mode==RestMode.PASSENGER_RIDE&&requested.arrivalEnabled)WakePlan.deadline(System.currentTimeMillis(),requested.arrivalWall,requested.wakeLeadMinutes);}
+        catch(IllegalArgumentException invalid){message=invalid.getMessage();publish();return;}
         if(!requested.mode.accepts(requested.seat)){message="휴식 모드에 맞는 좌석을 선택해 주세요.";publish();return;}
         busy=true;publish();
         if(requested.mode==RestMode.PASSENGER_RIDE){prepare(requested,snapshot,applyEnvironment);return;}
@@ -178,23 +193,43 @@ public final class RestController {
     }
     private void start(RestSession current) {
         if (session != current) return;
-        current.start(System.currentTimeMillis(), SystemClock.elapsedRealtime(), boot()); store.session(current);
+        try{current.start(System.currentTimeMillis(), SystemClock.elapsedRealtime(), boot());}
+        catch(IllegalArgumentException expired){current.phase=RestSession.Phase.AWAKE;current.appendReport(expired.getMessage());busy=false;store.session(current);publish();return;}
+        store.session(current);
         alarms.schedule(current); busy = false;audioWanted=current.profile.sound>0;
+        if(personalArrival(current))new PersonalWake(context).schedule(current.id,current.endWall,System.currentTimeMillis());
         if(audioWanted&&current.profile.mode.backgroundAudio())requestAudioService("start");
         else if(audioWanted&&visible&&windowFocused)sounds.play(current.profile);
         publish();
     }
+    public void arrival(long wall,int lead){
+        if(session==null||session.phase!=RestSession.Phase.RESTING||session.profile.mode!=RestMode.PASSENGER_RIDE)return;
+        long now=System.currentTimeMillis(),end=WakePlan.deadline(now,wall,lead);
+        if(end-session.startWall>WakePlan.MAX_REST)throw new IllegalArgumentException("한 번의 휴식은 최대 3시간이에요.");
+        session.profile.arrivalEnabled=true;session.profile.arrivalWall=wall;session.profile.wakeLeadMinutes=lead;
+        session.endWall=end;session.endElapsed=SystemClock.elapsedRealtime()+end-now;store.session(session);alarms.schedule(session);publish();
+        if(personalArrival(session))new PersonalWake(context).schedule(session.id,end,now);
+    }
+    public void arrivalAutomatic(long wall,int lead){
+        if(session==null||session.phase!=RestSession.Phase.RESTING||session.profile.mode!=RestMode.PASSENGER_RIDE)return;
+        long now=System.currentTimeMillis(),end=WakePlan.automaticDeadline(now,wall,lead);
+        if(end-session.startWall>WakePlan.MAX_REST)return;
+        session.profile.arrivalEnabled=true;session.profile.arrivalWall=wall;session.profile.wakeLeadMinutes=lead;
+        session.endWall=end;session.endElapsed=SystemClock.elapsedRealtime()+end-now;store.session(session);alarms.schedule(session);refresh();publish();
+    }
+    private boolean personalArrival(RestSession value){return value.profile.mode==RestMode.PASSENGER_RIDE&&value.profile.arrivalEnabled&&!context.getPackageManager().hasSystemFeature(android.content.pm.PackageManager.FEATURE_AUTOMOTIVE);}
     public void extend() { if (session == null || session.phase != RestSession.Phase.RESTING) return; session.extendFiveMinutes(); store.session(session); alarms.schedule(session); publish(); }
     public boolean alarm(String id) {
         if (session == null || !session.id.equals(id) || session.phase != RestSession.Phase.RESTING) return false;
         // A stale broadcast from a prior extension must not wake the current session early.
         if (remaining() > 1500) { alarms.schedule(session); return false; }
-        session.phase = RestSession.Phase.AWAKE; store.session(session);audioCommand("stop");alarms.cancel();alarms.notifyFinished(session);publish();return true;
+        session.phase = RestSession.Phase.AWAKE; store.session(session);audioCommand("stop");alarms.cancel();if(personalArrival(session))new PersonalWake(context).fire(session.id,session.endWall);else alarms.notifyFinished(session);publish();return true;
     }
     public void finish() {
         if (session == null || busy || session.phase == RestSession.Phase.REVIEW) return;
         RestSession current = session; busy = true; current.phase = RestSession.Phase.FINISHING;
         current.finishedWall = System.currentTimeMillis(); store.session(current); alarms.cancel();audioCommand("stop");publish();
+        new PersonalWake(context).cancelIf(current.id);
         if (current.demo != vehicle.isDemo()) { current.appendReport("차량 연결이 달라 원래 설정을 복원하지 못했어요. 차량에서 직접 확인해 주세요."); review(current); return; }
         if (!current.temperatureTouched && !current.fanTouched) { review(current); return; }
         vehicle.inspect(current.profile.seat, new VehicleBridge.Result<VehicleSnapshot>() {

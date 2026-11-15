@@ -47,3 +47,7 @@
 - [Android 오디오 입력 공유: 통화 접근 제한](https://developer.android.com/media/platform/sharing-audio-input)
 
 실제로 통과한 검사와 남은 범위는 [검증 기록](VERIFICATION.md)에 구분한다.
+
+## 1.3 동승자 음악 제어
+
+차량이 지정한 음악 대표만 승인된 휴대폰에서 선택 목록을 전송하고 재생·일시정지·다음 곡·중지를 요청할 수 있다. 다른 운전자/동승자 휴식의 음악을 덮어쓰지 않는다. 역할과 기상 예약은 [연결 안내](COMPANION.md)를 따른다.
