@@ -11,6 +11,7 @@ import io.shimjari.rest.core.VehicleSnapshot;
 import io.shimjari.rest.vehicle.DemoVehicleBridge;
 import io.shimjari.rest.vehicle.PleosVehicleBridge;
 import io.shimjari.rest.vehicle.VehicleBridge;
+import io.shimjari.rest.music.MusicController;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -22,6 +23,7 @@ public final class RestController {
     public final Store store;
     public final AlarmScheduler alarms;
     public final SoundPlayer sounds;
+    public final MusicController music;
     public List<RestProfile> profiles;
     public RestProfile selected;
     public RestSession session;
@@ -29,10 +31,12 @@ public final class RestController {
     public String message = "";
     public boolean busy;
     private boolean visible;
+    private boolean windowFocused;
     private final List<Observer> observers = new ArrayList<>();
 
     public RestController(Context context) {
         this.context = context.getApplicationContext(); store = new Store(context); alarms = new AlarmScheduler(context); sounds = new SoundPlayer(context);
+        sounds.listener(this::publish);music=new MusicController(context,this::publish);
         profiles = store.profiles(); selected = profiles.get(0);
         for (RestProfile p : profiles) if (p.id.equals(store.selectedId())) selected = p;
         session = store.session();
@@ -58,11 +62,12 @@ public final class RestController {
     public void remove(Observer observer) { observers.remove(observer); }
     private void publish() { for (Observer value : new ArrayList<>(observers)) value.changed(); }
     public void visible(boolean value) { visible = value; if (!value) sounds.stop(); else refresh(); }
+    public void focused(boolean value) {windowFocused=value;if(value)main.post(this::refresh);}
     public int boot() { return Settings.Global.getInt(context.getContentResolver(), Settings.Global.BOOT_COUNT, -1); }
     public long remaining() { return session == null ? 0 : session.remaining(System.currentTimeMillis(), SystemClock.elapsedRealtime(), boot()); }
     public void refresh() {
         if (session != null && session.phase == RestSession.Phase.RESTING && remaining() == 0) alarm(session.id);
-        if (session != null && session.phase == RestSession.Phase.RESTING && visible) sounds.play(session.profile.sound);
+        if (session != null && session.phase == RestSession.Phase.RESTING && visible) {if(windowFocused)sounds.play(session.profile);sounds.remaining(remaining());}
     }
     public void saveProfile() { store.saveProfiles(profiles); store.selectedId(selected.id); publish(); }
     public void select(RestProfile profile) { if (session != null) return; selected = profile; saveProfile(); }
@@ -118,7 +123,7 @@ public final class RestController {
     private void start(RestSession current) {
         if (session != current) return;
         current.start(System.currentTimeMillis(), SystemClock.elapsedRealtime(), boot()); store.session(current);
-        alarms.schedule(current); busy = false; if (visible) sounds.play(current.profile.sound); publish();
+        alarms.schedule(current); busy = false; if (visible && windowFocused) sounds.play(current.profile); publish();
     }
     public void extend() { if (session == null || session.phase != RestSession.Phase.RESTING) return; session.extendFiveMinutes(); store.session(session); alarms.schedule(session); publish(); }
     public boolean alarm(String id) {

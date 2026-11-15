@@ -29,12 +29,17 @@ import io.shimjari.rest.core.RestProfile;
 import io.shimjari.rest.core.RestSession;
 import io.shimjari.rest.core.SeatId;
 import io.shimjari.rest.core.VehicleSnapshot;
+import io.shimjari.rest.core.MusicTrack;
+import io.shimjari.rest.core.MusicContext;
+import io.shimjari.rest.music.MusicController;
+import io.shimjari.rest.music.MusicRepository;
 import io.shimjari.rest.vehicle.DemoVehicleBridge;
 import io.shimjari.rest.vehicle.VehicleBridge;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.function.IntConsumer;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -66,6 +71,7 @@ public final class MainActivity extends Activity implements RestController.Obser
     }
     @Override protected void onStart() { super.onStart(); c.observe(this); c.visible(true); tick.post(ticker); render(); }
     @Override protected void onStop() { tick.removeCallbacks(ticker); c.remove(this); c.visible(false); super.onStop(); }
+    @Override public void onWindowFocusChanged(boolean hasFocus){super.onWindowFocusChanged(hasFocus);if(c!=null)c.focused(hasFocus);}
     @Override protected void onSaveInstanceState(Bundle state) { state.putString("page", page); super.onSaveInstanceState(state); }
     @Override public void changed() { render(); }
 
@@ -114,6 +120,7 @@ public final class MainActivity extends Activity implements RestController.Obser
             gap(brand, 8); brand.addView(text("쉼자리", 24, INK, true)); rail.addView(brand); space(rail, 7);
             rail.addView(text("당신을 위한 작은 쉼", 11, MUTED, false)); space(rail, 40);
             nav("home", "휴식 준비", "◌", rail, true); nav("profiles", "나의 프로필", "○", rail, true);
+            nav("music", "오늘의 음악", "♫", rail, true);
             nav("history", "쉼의 기록", "◷", rail, true); nav("settings", "설정", "⋯", rail, true);
             View filler = new View(this); rail.addView(filler, new LinearLayout.LayoutParams(1, 0, 1));
             rail.addView(text("천천히, 편안하게.\nSHIMJARI", 12, MUTED, false));
@@ -127,9 +134,10 @@ public final class MainActivity extends Activity implements RestController.Obser
         if (!wide) {
             LinearLayout bar = row(); bar.setPadding(dp(8), dp(8), dp(8), dp(8));
             nav("home", "휴식", "", bar, false); nav("profiles", "프로필", "", bar, false);
+            nav("music", "음악", "", bar, false);
             nav("history", "기록", "", bar, false); nav("settings", "설정", "", bar, false); root.addView(bar);
         }
-        if (page.equals("profiles")) profiles(); else if (page.equals("history")) history(); else if (page.equals("settings")) settings(); else home(wide);
+        if (page.equals("profiles")) profiles(); else if(page.equals("music"))music();else if (page.equals("history")) history(); else if (page.equals("settings")) settings(); else home(wide);
         applyRoot(root);
     }
     private void applyRoot(LinearLayout view) {
@@ -178,8 +186,11 @@ public final class MainActivity extends Activity implements RestController.Obser
         } else { environment.addView(thermal); space(environment,14); environment.addView(rest); }
         content.addView(environment); space(content,14);
         LinearLayout sound = card(); label(sound,"이번 쉼의 소리","소리는 선택 사항이에요. 다른 탑승자와 함께 결정해 주세요."); space(sound,12);
-        LinearLayout choices=row(); String[] sounds={"조용히","잔잔한 선율","빗소리"};
-        for(int i=0;i<sounds.length;i++){final int choice=i;Button b=button(sounds[i],c.selected.sound==i,()->{c.selected.sound=choice;c.saveProfile();});b.setTextSize(14);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(49),1);p.rightMargin=dp(6);choices.addView(b,p);} sound.addView(choices);content.addView(sound);space(content,18);
+        LinearLayout choices=row(); String[] sounds={"조용히","잔잔한 선율","빗소리","추천 음악"};
+        for(int i=0;i<sounds.length;i++){final int choice=i;Button b=button(sounds[i],c.selected.sound==i,()->{if(choice==3&&c.selected.music.isEmpty()){page="music";render();return;}c.selected.sound=choice;c.saveProfile();});b.setTextSize(13);b.setPadding(dp(5),dp(8),dp(5),dp(8));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(49),1);p.rightMargin=dp(6);choices.addView(b,p);} sound.addView(choices);
+        space(sound,12);sound.addView(button("오늘의 상황으로 음악 추천받기",false,()->{page="music";render();}));
+        if(c.selected.sound==3&&!c.selected.music.isEmpty()){space(sound,9);MusicTrack t=c.selected.music.get(0);sound.addView(text(t.title+" — "+t.artist+" 외 "+(c.selected.music.size()-1)+"곡 · Audius",13,PURPLE,false));}
+        content.addView(sound);space(content,18);
         Button start=button(c.busy?"환경을 확인하고 있어요…":"휴식 준비하기   →",true,this::preview); start.setEnabled(!c.busy);content.addView(start,new LinearLayout.LayoutParams(-1,dp(60)));space(content,12);
         String note=c.vehicle.isDemo()?"체험 모드에서는 실제 차량을 변경하지 않아요.":"공조 설정은 P단·정차 확인 후 지원되는 항목에만 적용해요.";
         content.addView(text(note,12,MUTED,false));
@@ -194,6 +205,55 @@ public final class MainActivity extends Activity implements RestController.Obser
     private void adjustTemperature(float delta){c.selected.temperature=Math.max(16,Math.min(30,c.selected.temperature+delta));c.saveProfile();}
     private void adjustFan(int delta){c.selected.fan=Math.max(1,Math.min(8,c.selected.fan+delta));c.saveProfile();}
     private void adjustMinutes(int delta){c.selected.minutes=Math.max(1,Math.min(180,c.selected.minutes+delta));c.saveProfile();}
+    private void musicChoices(LinearLayout parent,String[] labels,int selected,IntConsumer choose){
+        int columns=getResources().getConfiguration().screenWidthDp>=800?labels.length:Math.min(3,labels.length);
+        LinearLayout line=null;
+        for(int i=0;i<labels.length;i++){
+            if(i%columns==0){line=row();parent.addView(line);space(parent,7);}
+            final int value=i;Button b=button(labels[i],i==selected,()->{choose.accept(value);c.music.edited();});b.setTextSize(14);b.setPadding(dp(7),dp(7),dp(7),dp(7));b.setEnabled(!c.music.busy());
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(50),1);p.rightMargin=dp(6);line.addView(b,p);
+        }
+    }
+    private void music(){
+        MusicController m=c.music;MusicContext context=m.context;
+        pageHeader("MUSIC FOR THIS MOMENT","오늘의 쉼에 어울리는 음악");
+        LinearLayout situation=card();label(situation,"지금은 어떻게 쉬고 싶나요?","기분은 직접 골라 주세요. 통화 내용을 듣거나 읽지 않아요.");space(situation,14);
+        musicChoices(situation,new String[]{"잠깐 잠들기","조용히 쉬기","기분 전환"},context.purpose.ordinal(),i->context.purpose=MusicContext.Purpose.values()[i]);space(situation,10);
+        label(situation,"지금의 기분","최근 대화 후의 느낌도 여기에서 선택할 수 있어요.");space(situation,10);
+        musicChoices(situation,new String[]{"선택 안 함","차분함","긴장됨","지침","들뜸"},context.feeling.ordinal(),i->context.feeling=MusicContext.Feeling.values()[i]);space(situation,12);
+        label(situation,"오늘의 날씨",m.weatherNote);space(situation,10);
+        musicChoices(situation,new String[]{"선택 안 함","맑음","흐림","비","눈"},context.weather.ordinal(),i->{context.weather=MusicContext.Weather.values()[i];m.weatherNote="직접 선택한 날씨예요.";});
+        Button weather=button(m.loadingWeather?"지역 예보를 가져오고 있어요…":"지역을 골라 날씨 가져오기",false,()->new AlertDialog.Builder(this).setTitle("어느 지역에서 쉬고 있나요?").setItems(MusicRepository.CITIES,(d,i)->m.weather(i)).setNegativeButton("취소",null).show());weather.setEnabled(!m.busy());situation.addView(weather);space(situation,9);
+        situation.addView(text("선택한 도시의 예보를 사용해요. GPS 위치를 수집하지 않아요.",12,MUTED,false));space(situation,15);
+        label(situation,"선호하는 장르","직접 고른 장르를 날씨보다 우선해요.");space(situation,10);
+        String[] genres={"","Ambient","Lo-Fi","Jazz","Classical"};int selected=0;for(int i=0;i<genres.length;i++)if(genres[i].equals(context.preferredGenre))selected=i;
+        musicChoices(situation,new String[]{"분위기에 맞게","앰비언트","로파이","재즈","클래식"},selected,i->context.preferredGenre=genres[i]);
+        content.addView(situation);space(content,15);
+        LinearLayout service=card();label(service,"공개 음악 서비스 Audius","추천한 음악은 쉼자리 안에서 재생해요. 멜론의 곡 목록과는 달라요.");space(service,8);
+        service.addView(text("검색할 때 음악 장르·분위기 태그가 Audius로 전달돼요.\n기분 선택 자체와 통화·연락처 정보는 보내지 않아요. 음악 재생에는 인터넷이 필요해요.",13,MUTED,false));space(service,14);
+        Button search=button(m.loadingMusic?"어울리는 음악을 찾고 있어요…":"오늘의 음악 추천받기",true,m::search);search.setEnabled(!m.busy());service.addView(search);content.addView(service);space(content,15);
+        if(!m.reason.isEmpty()){content.addView(text(m.reason,14,PURPLE,false));space(content,10);}
+        if(!m.note.isEmpty()){content.addView(text(m.note,14,INK,false));space(content,14);}
+        for(int i=0;i<m.results.size();i++){
+            final int selectedIndex=i;MusicTrack t=m.results.get(i);LinearLayout track=card();
+            label(track,t.title,t.artist+" · Audius");space(track,8);
+            String info=t.genre+(!t.mood.isEmpty()?" · "+t.mood:"")+" · "+(t.seconds/60)+":"+String.format(Locale.US,"%02d",t.seconds%60);
+            track.addView(text(info,13,MUTED,false));space(track,12);
+            track.addView(button("이 곡부터 휴식 음악으로 선택",true,()->{
+                c.selected.music.clear();for(int k=0;k<m.results.size();k++)c.selected.music.add(m.results.get((selectedIndex+k)%m.results.size()));
+                c.selected.sound=3;page="home";c.saveProfile();toast("휴식을 시작하면 선택한 음악 목록을 순서대로 재생해요.");
+            }));
+            if(!t.permalink.isEmpty()){space(track,8);track.addView(button("Audius에서 곡 보기",false,()->openWeb(t.pageUrl())));}
+            content.addView(track);space(content,12);
+        }
+        space(content,10);content.addView(text("곡의 공개 장르·무드 태그와 선택한 조건을 비교해 추천해요.\n음악 출처: Audius 및 각 아티스트. 날씨: Open-Meteo 모델 예보(CC BY 4.0).",12,MUTED,false));space(content,8);
+        content.addView(button("날씨 데이터 출처·라이선스",false,()->openWeb("https://open-meteo.com/en/terms")));
+    }
+    private void openWeb(String address){
+        android.net.Uri uri=android.net.Uri.parse(address);
+        if(!"https".equals(uri.getScheme())||(!"audius.co".equals(uri.getHost())&&!"open-meteo.com".equals(uri.getHost())))return;
+        try{startActivity(new Intent(Intent.ACTION_VIEW,uri));}catch(Exception unavailable){toast("이 기기에서 링크를 열 수 있는 앱이 없어요.");}
+    }
     private void chooseProfile(){
         String[] names=new String[c.profiles.size()];for(int i=0;i<names.length;i++)names[i]=c.profiles.get(i).name;
         new AlertDialog.Builder(this).setTitle("누가 쉬어가나요?").setItems(names,(d,i)->c.select(c.profiles.get(i)))
@@ -247,9 +307,9 @@ public final class MainActivity extends Activity implements RestController.Obser
         alarm.addView(text(c.alarms.exactAvailable()?"정확한 시간의 알림을 사용할 수 있어요.":"절전 중 알림이 지연될 수 있어요. 정확한 알림 권한을 설정할 수 있어요.",13,MUTED,false));
         if(Build.VERSION.SDK_INT>=31&&!c.alarms.exactAvailable()){space(alarm,8);alarm.addView(button("정확한 알림 허용",false,()->{try{startActivity(new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,android.net.Uri.parse("package:"+getPackageName())));}catch(Exception e){toast("기기 설정에서 알람 권한을 확인해 주세요.");}}));}
         content.addView(alarm);space(content,14);
-        LinearLayout privacy=card();label(privacy,"내 기기에만 남기는 기록","계정·연락처·위치·마이크를 수집하지 않아요.\n오디오는 앱이 화면에 보일 때만 재생돼요.");space(privacy,12);
+        LinearLayout privacy=card();label(privacy,"내 기기에 저장하는 프로필과 기록","연락처·GPS 위치·마이크·통화 내용을 수집하지 않아요.\n선택한 음악·지역 예보를 조회할 때 Audius·Open-Meteo에 연결해요.\n음악은 앱이 화면에 보일 때만 재생돼요.");space(privacy,12);
         privacy.addView(button("휴식 기록 지우기",false,()->new AlertDialog.Builder(this).setTitle("모든 휴식 기록을 지울까요?").setMessage("삭제한 기록은 되돌릴 수 없어요. 프로필은 유지돼요.").setPositiveButton("기록 삭제",(d,w)->{c.store.clearHistory();toast("휴식 기록을 지웠어요.");}).setNegativeButton("취소",null).show()));content.addView(privacy);space(content,14);
-        content.addView(text("쉼자리 1.0.0\n정차한 차량에서의 휴식을 돕는 앱입니다.\n좌석 자동 이동·습도 제어·수면 단계 판정은 제공하지 않아요.",13,MUTED,false));
+        content.addView(text("쉼자리 1.1.0\n정차한 차량에서의 휴식을 돕는 앱입니다.\n좌석 자동 이동·습도 제어·수면 단계 판정은 제공하지 않아요.",13,MUTED,false));
         if(c.vehicle instanceof DemoVehicleBridge){space(content,18);content.addView(button("체험 환경: "+(((DemoVehicleBridge)c.vehicle).simulatedParked?"주차 중":"주행 중"),false,()->{DemoVehicleBridge d=(DemoVehicleBridge)c.vehicle;d.simulatedParked=!d.simulatedParked;render();}));}
     }
     private void connectPleos(){
@@ -318,6 +378,13 @@ public final class MainActivity extends Activity implements RestController.Obser
             TextView sub=text(detail,15,secondary,false);sub.setGravity(Gravity.CENTER);body.addView(sub);space(body,24);
             TextView settings=text(s.profile.name+"   ·   "+s.profile.seat.label+"   ·   "+s.profile.soundName(),14,secondary,false);settings.setGravity(Gravity.CENTER);body.addView(settings);space(body,10);
             TextView env=text("선호 설정   "+s.profile.temperature+"°C   /   풍량 "+s.profile.fan+"단계",13,secondary,false);env.setGravity(Gravity.CENTER);body.addView(env);space(body,20);
+            if(s.phase==RestSession.Phase.RESTING && s.profile.sound>0){
+                TextView now=text((c.sounds.title().isEmpty()?s.profile.soundName():c.sounds.title())+"\n"+c.sounds.status(),14,secondary,false);now.setGravity(Gravity.CENTER);body.addView(now);space(body,10);
+                LinearLayout controls=row();Button pause=button("음악 일시정지",false,c.sounds::pause),restart=button("다시 재생",false,c.sounds::restart);
+                controls.addView(pause,new LinearLayout.LayoutParams(0,dp(50),1));gap(controls,8);controls.addView(restart,new LinearLayout.LayoutParams(0,dp(50),1));body.addView(controls,new LinearLayout.LayoutParams(-1,-2));space(body,8);
+                if(s.profile.sound==3){body.addView(button("다음 곡",false,c.sounds::next));space(body,8);}
+                body.addView(text("종료 30초 전부터 소리가 줄어들어요. 앱을 벗어나면 음악을 멈춰요.",12,secondary,false));space(body,16);
+            }
             if(!c.busy){
                 if(s.phase==RestSession.Phase.RESTING){Button extend=button("5분 더 쉬기",false,c::extend);body.addView(extend,new LinearLayout.LayoutParams(dp(280),dp(52)));space(body,10);}
                 Button finish=button("휴식 마치기",true,c::finish);body.addView(finish,new LinearLayout.LayoutParams(dp(280),dp(56)));space(body,14);

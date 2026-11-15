@@ -5,13 +5,14 @@ import android.content.SharedPreferences;
 import io.shimjari.rest.core.RestProfile;
 import io.shimjari.rest.core.RestSession;
 import io.shimjari.rest.core.SeatId;
+import io.shimjari.rest.core.MusicTrack;
 import java.util.ArrayList;
 import java.util.List;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-/** Private local storage; no accounts, analytics, networking or cloud backup. */
+/** Private local profiles and sessions. No account or cloud backup. */
 public final class Store {
     private final SharedPreferences prefs;
     public Store(Context context) { prefs = context.getSharedPreferences("shimjari", Context.MODE_PRIVATE); }
@@ -40,12 +41,21 @@ public final class Store {
         try {
             j.put("id", value.id).put("name", value.name).put("seat", value.seat.name())
                 .put("temperature", value.temperature).put("fan", value.fan).put("minutes", value.minutes).put("sound", value.sound);
+            JSONArray tracks=new JSONArray();
+            for(MusicTrack t:value.music)tracks.put(new JSONObject().put("id",t.id).put("title",t.title).put("artist",t.artist).put("genre",t.genre).put("mood",t.mood).put("path",t.permalink).put("bpm",t.bpm).put("seconds",t.seconds).put("tags",t.tags));
+            j.put("music",tracks);
         } catch (JSONException error) { throw new IllegalStateException(error); }
         return j;
     }
     private RestProfile profile(JSONObject j) throws JSONException {
-        return new RestProfile(j.getString("id"), j.getString("name"), SeatId.valueOf(j.getString("seat")),
+        RestProfile p=new RestProfile(j.getString("id"), j.getString("name"), SeatId.valueOf(j.getString("seat")),
             (float) j.getDouble("temperature"), j.getInt("fan"), j.getInt("minutes"), j.getInt("sound"));
+        JSONArray tracks=j.optJSONArray("music");
+        if(tracks!=null)for(int i=0;i<Math.min(8,tracks.length());i++)try{
+            JSONObject t=tracks.getJSONObject(i);p.music.add(new MusicTrack(t.getString("id"),t.optString("title"),t.optString("artist"),t.optString("genre"),t.optString("mood"),t.optString("path"),t.optDouble("bpm",0),t.getInt("seconds"),t.optString("tags")));
+        }catch(Exception ignored){/* Ignore a removed or malformed catalogue item. */}
+        if(p.sound==3 && p.music.isEmpty())p.sound=0;
+        return p;
     }
     public RestSession session() {
         String raw = prefs.getString("session", null);
